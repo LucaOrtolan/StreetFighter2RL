@@ -92,8 +92,8 @@ class SFWrapper(Wrapper):
         else:
             return np.stack([o[::2, ::2, i % 3] for (i, o) in enumerate(obs[::(self.num_step_frames // 2)])], axis=-1)
 
-    def reset(self):
-        obs = self.env.reset()
+    def reset(self, **kwargs):
+        obs, info = self.env.reset()
 
         self.prev_agent_hp = self.full_hp
         self.prev_enemy_hp = self.full_hp
@@ -108,7 +108,7 @@ class SFWrapper(Wrapper):
 
         self.total_timesteps = 0
 
-        return self._get_obs(obs)
+        return self._get_obs(obs), info
     
     def update_status(self, info, bonus=False):
         max_round = 1 if bonus else 3
@@ -119,7 +119,7 @@ class SFWrapper(Wrapper):
         enemy_victories = info["enemy_matches_won"]
         round_countdown = info["round_timer"]
         timesup = (round_countdown <= 0)
-
+        
         if self.match_status == END_STATUS and (agent_victories == 0 and enemy_victories == 0):
             self.match_status = START_STATUS
             self.save_state = True
@@ -170,15 +170,6 @@ class SFWrapper(Wrapper):
             assert action.shape[-1] == 2 * self.action_dim, f"action_shape[-1]={action.shape[-1]}, 2 * self.action_dim={2*self.action_dim}"
         else:
             assert action.shape[-1] == self.action_dim, f"action_shape[-1]={action.shape[-1]}, self.action_dim={self.action_dim}"
-
-        if self.level in SF_BONUS_LEVEL:
-            skip_level = self.level
-            no_op = np.zeros_like(action[:24])
-            while self.level == skip_level:
-                obs, _reward, _done, info = self.env.step(no_op)
-                self.update_status(info, bonus=True)
-            if self.verbose:
-                print(f"Skip bonus level {skip_level}")
 
         custom_done = False
 
@@ -238,6 +229,7 @@ class SFWrapper(Wrapper):
         enemy_victories = info["enemy_matches_won"]
         round_countdown = info["round_timer"]
         timesup = (round_countdown <= 0)
+
 
         self.total_timesteps += self.num_step_frames
 
