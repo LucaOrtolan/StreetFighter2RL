@@ -3,7 +3,6 @@ from stable_baselines3.common.monitor import Monitor
 import stable_retro as retro
 from const import *
 
-
 def make_env(game, 
             state,
             side, 
@@ -36,16 +35,14 @@ def random_agent(env, episodes=1):
     obs = env.reset()
     # Set flag to flase
     done = False
-    episodes = 1
+
     for game in range(episodes): 
         while not done:
             action = env.action_space.sample()
             obs, reward, done, truncated, info = env.step(action)
         print(f"Player: {info['matches_won']} - CPU: {info['enemy_matches_won']}")
     
-    env.close()
-
-
+    env.close()    
 
 def main():
     game = 'StreetFighterIISpecialChampionEdition-Genesis-v0'
