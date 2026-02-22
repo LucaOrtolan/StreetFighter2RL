@@ -9,7 +9,7 @@ import math
 from stable_baselines3.common.monitor import Monitor
 from typing import Optional, Tuple, Union
 from stable_baselines3.common.type_aliases import GymObs, GymStepReturn
-
+import cv2
 
 class SFWrapper(Wrapper):
     def __init__(self, env, side, reset_type="round", init_level=1, rendering=False, num_stack=12, num_step_frames=8, state_dir=None, verbose=False, enable_combo=True, null_combo=False, transform_action=False):
@@ -34,6 +34,7 @@ class SFWrapper(Wrapper):
         self.frame_rate = 0.01
 
         self.observation_space = Box(low=0, high=255, shape=(100, 128, len(range(0, self.num_stack, self.num_step_frames // 2))), dtype=np.uint8)
+
         self.action_dim = 12 + 3 if (enable_combo or null_combo) else 12 # 3 bits for combos
 
         if transform_action:

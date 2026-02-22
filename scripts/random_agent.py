@@ -45,7 +45,7 @@ def random_agent(env, episodes=1):
     env.close()    
 
 def main():
-    game = 'StreetFighterIISpecialChampionEdition-Genesis-v0'
+    game = sf_game
     state = "ken"
     side = "left" # side for AI to control
     reset_type = "match"
