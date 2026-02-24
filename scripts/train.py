@@ -32,7 +32,7 @@ def main():
         "CnnPolicy", 
         env,
         device="cuda", 
-        verbose=1,
+        verbose=0,
         n_steps=1024, # 
         batch_size=2048, # multiple of n_steps
         gamma=0.94,

@@ -41,13 +41,14 @@ class TrainAndLoggingCallback(BaseCallback):
                         winrate = sum(self.episode_wins) / len(self.episode_wins)
                         self.logger.record("rollout/ep_winrate", winrate)
 
+
+                        self.logger.record("rollout/episode_count", self.episode_count)
+                    
+                        should_save = (winrate >= 0.99) or (winrate >= self.best_winrate + self.improvement_threshold)
+
                         # Update best winrate
                         if winrate > self.best_winrate:
                             self.best_winrate = winrate
-
-                        self.logger.record("rollout/episode_count", self.episode_count)
-
-                        should_save = (winrate >= 0.99) or (winrate >= self.best_winrate + self.improvement_threshold)
 
                         if should_save:
                             model_path = os.path.join(self.save_path, f'best_model_winrate_{winrate:.3f}_{self.n_calls}')
