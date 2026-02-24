@@ -8,15 +8,16 @@ class TrainAndLoggingCallback(BaseCallback):
             $ tensorboard --logdir=logs
     """
 
-    def __init__(self, check_freq, save_path, verbose=1, delete_previous_model=False, winrate_buffer_size=100):
+    def __init__(self, save_path, verbose=1, delete_previous_model=False, winrate_buffer_size=100, improvement_threshold=0.05):
         super(TrainAndLoggingCallback, self).__init__(verbose)
-        self.check_freq = check_freq
         self.save_path = save_path
         self.delete_previous_model = delete_previous_model
         self.winrate_buffer_size = winrate_buffer_size
+        self.improvement_threshold = improvement_threshold
         self.last_model_path = None  # track previous checkpoint
         self.episode_wins = deque(maxlen=winrate_buffer_size)
         self.episode_count = 0
+        self.best_winrate = 0.0
 
     def _init_callback(self):
         if self.save_path is not None:
@@ -39,24 +40,25 @@ class TrainAndLoggingCallback(BaseCallback):
                     if len(self.episode_wins) >= self.winrate_buffer_size:
                         winrate = sum(self.episode_wins) / len(self.episode_wins)
                         self.logger.record("rollout/ep_winrate", winrate)
-                    self.logger.record("rollout/episode_count", self.episode_count)
 
-        if self.n_calls % self.check_freq == 0:
-            # save new checkpoint
-            model_path = os.path.join(
-                self.save_path,
-                f'best_model_{self.n_calls}'
-            )
-            self.model.save(model_path)
+                        # Update best winrate
+                        if winrate > self.best_winrate:
+                            self.best_winrate = winrate
 
-            # delete previous checkpoint if it exists
-            if self.delete_previous_model:
-                if self.last_model_path is not None and os.path.exists(self.last_model_path):
-                    os.remove(self.last_model_path)
+                        self.logger.record("rollout/episode_count", self.episode_count)
 
-            # update pointer
-            self.last_model_path = model_path
+                        should_save = (winrate >= 0.99) or (winrate >= self.best_winrate + self.improvement_threshold)
 
+                        if should_save:
+                            model_path = os.path.join(self.save_path, f'best_model_winrate_{winrate:.3f}_{self.n_calls}')
+                            self.model.save(model_path)
+
+                            # Delete previous model if it exists
+                            if self.delete_previous_model and self.last_model_path is not None and os.path.exists(self.last_model_path):
+                                os.remove(self.last_model_path)
+
+                            # Update pointer to new model
+                            self.last_model_path = model_path + ".zip"
 
         return True
 
