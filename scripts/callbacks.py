@@ -8,7 +8,7 @@ class TrainAndLoggingCallback(BaseCallback):
             $ tensorboard --logdir=logs
     """
 
-    def __init__(self, save_path, verbose=1, delete_previous_model=False, winrate_buffer_size=100, improvement_threshold=0.05):
+    def __init__(self, save_path, verbose=1, delete_previous_model=False, winrate_buffer_size=100, improvement_threshold=0.025):
         super(TrainAndLoggingCallback, self).__init__(verbose)
         self.save_path = save_path
         self.delete_previous_model = delete_previous_model
@@ -17,13 +17,15 @@ class TrainAndLoggingCallback(BaseCallback):
         self.last_model_path = None  # track previous checkpoint
         self.episode_wins = deque(maxlen=winrate_buffer_size)
         self.episode_count = 0
-        self.best_winrate = 0.0
+        self.last_saved_best_winrate = 0.0
 
     def _init_callback(self):
         if self.save_path is not None:
             os.makedirs(self.save_path, exist_ok=True)
 
     def _on_step(self):
+        self.logger.record("rollout/episode_count", self.episode_count)
+
         # Winrate tracking - check episode terminations
         if self.locals.get("infos"):
             for info in self.locals["infos"]:
@@ -41,14 +43,7 @@ class TrainAndLoggingCallback(BaseCallback):
                         winrate = sum(self.episode_wins) / len(self.episode_wins)
                         self.logger.record("rollout/ep_winrate", winrate)
 
-
-                        self.logger.record("rollout/episode_count", self.episode_count)
-                    
-                        should_save = (winrate >= 0.99) or (winrate >= self.best_winrate + self.improvement_threshold)
-
-                        # Update best winrate
-                        if winrate > self.best_winrate:
-                            self.best_winrate = winrate
+                        should_save = (winrate >= 0.99) or (winrate >= self.last_saved_best_winrate + self.improvement_threshold)
 
                         if should_save:
                             model_path = os.path.join(self.save_path, f'best_model_winrate_{winrate:.3f}_{self.n_calls}')
@@ -60,6 +55,9 @@ class TrainAndLoggingCallback(BaseCallback):
 
                             # Update pointer to new model
                             self.last_model_path = model_path + ".zip"
+
+                            # Update best winrate
+                            self.last_saved_best_winrate = winrate
 
         return True
 
