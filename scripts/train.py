@@ -7,10 +7,11 @@ from utils import make_env, linear_schedule
 
 CHECKPOINT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "train")
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
-    
+STATE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data/curriculum")
+
 def main():
     game = 'StreetFighterIISpecialChampionEdition-Genesis-v0'
-    state = "/home/master26/Documents/StreetFighter2RL/FightLadder/data/sf/curriculum/Level2.20.state"
+    state = os.path.join(STATE_DIR, "Level2.20.state")
     side = "left" # side for AI to control
     reset_type = "match"
     rendering = False
@@ -33,9 +34,10 @@ def main():
         env,
         device="cuda", 
         verbose=1,
-        n_steps=1024, # 
+        n_steps=1024, 
         batch_size=2048, # multiple of n_steps
         gamma=0.94,
+        n_epochs=10,
         learning_rate=lr_schedule,
         clip_range=clip_range_schedule,
         tensorboard_log=LOG_DIR,
