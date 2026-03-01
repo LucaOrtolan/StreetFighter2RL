@@ -70,3 +70,18 @@ SELECT_CHARACTER_SEQUENCES = {
     'Sagat': ['DOWN'] + ['RIGHT'] * 4,
     'Bison': ['DOWN'] + ['RIGHT'] * 5,
 }
+
+CHARACTER_MAPPING= {
+    0: "ryu",
+    1: "honda", 
+    2: "blanka",
+    3: "guile",
+    4: "ken",
+    5: "chunli",
+    6: "zangief",
+    7: "dhalsim",
+    8: "bison",
+    9: "sagat",
+    10: "balrog",
+    11: "vega"
+}
