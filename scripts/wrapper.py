@@ -231,7 +231,6 @@ class SFWrapper(Wrapper):
         round_countdown = info["round_timer"]
         timesup = (round_countdown <= 0)
 
-
         self.total_timesteps += self.num_step_frames
 
         if self.during_transation and (self.match_status == END_STATUS or self.round_status == END_STATUS):
@@ -301,6 +300,7 @@ class SFWrapper(Wrapper):
             info["level"] = self.level
             info["match"] = "start" if self.match_status == START_STATUS else "end"
             info["round"] = "start" if self.round_status == START_STATUS else "end"
+
             if custom_done:
                 info["outcome"] = "win" if (agent_hp > enemy_hp) else ("lose" if (agent_hp < enemy_hp) else "draw")
             

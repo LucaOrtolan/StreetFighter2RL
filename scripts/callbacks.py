@@ -9,21 +9,14 @@ class TrainAndLoggingCallback(BaseCallback):
             $ tensorboard --logdir=logs
     """
 
-    def __init__(self, save_path, verbose=1, delete_previous_model=False, winrate_buffer_size=100, improvement_threshold=0.025):
+    def __init__(self, verbose=1, winrate_buffer_size=100):
         super(TrainAndLoggingCallback, self).__init__(verbose)
-        self.save_path = save_path
-        self.delete_previous_model = delete_previous_model
         self.winrate_buffer_size = winrate_buffer_size
-        self.improvement_threshold = improvement_threshold
         self.last_model_path = None  # track previous checkpoint
         self.episode_wins = deque(maxlen=winrate_buffer_size)   # buffer for calculating global winrate
         self.episode_count = 0
-        self.last_saved_best_winrate = 0.0
 
     def _init_callback(self):
-        if self.save_path is not None:
-            os.makedirs(self.save_path, exist_ok=True)
-
         self.logger.record("train/batch_size", self.model.batch_size)
         self.logger.record("train/n_envs", self.model.n_envs)
         self.logger.record("train/n_steps", self.model.n_steps)
@@ -32,7 +25,6 @@ class TrainAndLoggingCallback(BaseCallback):
 
     def _on_step(self):
         self.logger.record("rollout/episode_count", self.episode_count)
-
         # create separate buffers for tracking winrate for each matchup
         if self.n_calls ==1:
             self.matchups_wins = {}
@@ -52,33 +44,93 @@ class TrainAndLoggingCallback(BaseCallback):
                     outcome_cat = 1.0 if outcome == "win" else 0.0
                     self.episode_wins.append(outcome_cat)
 
-                    winrate = sum(self.episode_wins) / len(self.episode_wins)
-                    self.logger.record("rollout/ep_winrate", winrate)
+                    if self.episode_count >= self.winrate_buffer_size:
+                        winrate = sum(self.episode_wins) / len(self.episode_wins)
+                        self.logger.record("rollout/ep_winrate", winrate)
 
-                    # update winrate per matchup
-                    enemy_char = info.get("enemy_character")
-                    self.matchups_wins[enemy_char].append(outcome_cat)
-                    matchup_winrate = sum(self.matchups_wins[enemy_char]) / len(self.matchups_wins[enemy_char])
-                    self.logger.record(f"rollout/ep_winrate_{CHARACTER_MAPPING[enemy_char]}", matchup_winrate)
-
-                    # should save condition
-                    should_save = (winrate >= 0.99) or (winrate >= self.last_saved_best_winrate + self.improvement_threshold)
-
-                    if should_save:
-                        model_path = os.path.join(self.save_path, f'best_model_winrate_{winrate:.3f}_{self.episode_count}')
-                        self.model.save(model_path)
-
-                        # Delete previous model if it exists
-                        if self.delete_previous_model and self.last_model_path is not None and os.path.exists(self.last_model_path):
-                            os.remove(self.last_model_path)
-
-                        # Update pointer to new model
-                        self.last_model_path = model_path + ".zip"
-
-                        # Update best winrate
-                        self.last_saved_best_winrate = winrate
+                        # update winrate per matchup
+                        enemy_char = info.get("enemy_character")
+                        self.matchups_wins[enemy_char].append(outcome_cat)
+                        matchup_winrate = sum(self.matchups_wins[enemy_char]) / len(self.matchups_wins[enemy_char])
+                        self.logger.record(f"rollout/ep_winrate_{CHARACTER_MAPPING[enemy_char]}", matchup_winrate)
 
         return True
+
+
+class EarlyStoppingCallback(BaseCallback):
+    """Early stopping if there are no improvements in mean reward per episode after a certain number of rollouts"""
+
+    def __init__(self, save_path, verbose=1, patience=1000, min_improvement=0.1, delete_previous_best_model=False):
+        super().__init__(verbose)
+        self.save_path = save_path
+        self.patience = patience
+        self.best_mean_reward = 0
+        self.best_model_path = None
+        self.delete_previous_best_model = delete_previous_best_model
+        self.patience_counter = 0
+        self.min_improvement = min_improvement
+        self.current_mean_reward = None
+
+    def _init_callback(self):
+        if self.save_path is not None:
+            os.makedirs(self.save_path, exist_ok=True)
+
+    def _on_rollout_end(self):
+        try:
+            self.current_mean_reward = sum([ep_info["r"] for ep_info in self.model.ep_info_buffer])/len([ep_info["r"] for ep_info in self.model.ep_info_buffer])
+        except ZeroDivisionError:
+            pass
+
+        # Avoid start saving or counting if the winrate isn't available yet
+        if self.logger.name_to_value.get("rollout/ep_winrate") is None:
+            pass
+
+        # Check if current mean reward is better than best so far
+        if self.current_mean_reward >= self.best_mean_reward + self.min_improvement:
+            self.best_mean_reward = self.current_mean_reward
+            self.patience_counter = 0  # reset patience counter
+
+            if self.best_model_path is not None:
+                if os.path.exists(self.best_model_path) and self.delete_previous_best_model:
+                    os.remove(self.best_model_path)
+            
+            # Save new best model
+            current_winrate = self.logger.name_to_value.get("rollout/ep_winrate")
+            num_episodes = self.logger.name_to_value.get("rollout/episode_count")
+
+            self.best_model_path = os.path.join(self.save_path, f"best_model_winrate_{current_winrate}_episode_{num_episodes}.zip")
+            self.model.save(self.best_model_path)
+
+            if self.verbose > 0:
+                print(
+                    f"[EarlyStopping] New best ep_rew_mean={self.best_mean_reward:.4f}, "
+                    f"saved model to {self.best_model_path}"
+                )
+        
+        # Handle no improvement case
+        else: 
+            self.patience_counter += 1
+    
+            
+    def _on_step(self):
+        # start logging and winrate becomes available
+        if self.logger.name_to_value.get("rollout/ep_winrate") is not None:
+            self.logger.record("rollout/last_saved_mean_reward", self.best_mean_reward)
+            self.logger.record("rollout/patience_counter", self.patience_counter)
+
+    
+        # Stop training if (num_episodes since last save) >= patience
+        if self.patience_counter >= self.patience:
+            if self.verbose > 0:
+                print(
+                    f"[EarlyStopping] Patience {self.patience} exceeded. "
+                    f"Stopping training. Best model: {self.best_model_path}"
+                )
+
+            return False
+        
+        return True 
+
 
 class OptunaTrainAndLoggingCallback(BaseCallback):
     """Callback for Optuna trials with TensorBoard logging, winrate tracking, and checkpointing."""
@@ -134,61 +186,3 @@ class LearningRateCallback(BaseCallback):
             self.last_reduce_episode = self.logger.name_to_value["rollout/episode_count"]
 
         return True
-
-
-# class CurriculumLearningCallback(TrainAndLoggingCallback):
-#     def __init__(self, save_path, curriculum:dict, verbose=1, delete_previous_model=False, 
-#                  winrate_buffer_size=100, winrate_threshold=0.9, improvement_threshold=0.025):
-#         # Pass ALL required parent parameters
-#         super(CurriculumLearningCallback, self).__init__(
-#             save_path=save_path,
-#             verbose=verbose,
-#             delete_previous_model=delete_previous_model,
-#             winrate_buffer_size=winrate_buffer_size,
-#             improvement_threshold=improvement_threshold
-#         )
-        
-#         self.curriculum = curriculum
-#         self.winrate_threshold = winrate_threshold
-
-#     def _on_step(self):
-#         self.logger.record("rollout/episode_count", self.episode_count)
-
-#         # Winrate tracking - check episode terminations
-#         if self.locals.get("infos"):
-#             for info in self.locals["infos"]:
-#                 # Check if episode ended (works with both Gymnasium and Gym APIs)
-#                 if info.get("episode"):
-#                     self.episode_count += 1
-#                     # Get win indicator from info (ensure SFWrapper sets this)
-#                     outcome = info.get("outcome")
-#                     # if isinstance(outcome, str):
-#                     outcome_cat = 1.0 if outcome == "win" else 0.0
-#                     self.episode_wins.append(outcome_cat)
-
-#                     # Log winrate every len(buffer) episodes minimum
-#                     if len(self.episode_wins) >= self.winrate_buffer_size:
-#                         winrate = sum(self.episode_wins) / len(self.episode_wins)
-#                         self.logger.record("rollout/ep_winrate", winrate)
-
-#                         should_save = (winrate >= 0.99) or (winrate >= self.last_saved_best_winrate + self.improvement_threshold)
-
-#                         if should_save:
-#                             model_path = os.path.join(self.save_path, f'best_model_winrate_{winrate:.3f}_{self.n_calls}')
-#                             self.model.save(model_path)
-
-#                             # Delete previous model if it exists
-#                             if self.delete_previous_model and self.last_model_path is not None and os.path.exists(self.last_model_path):
-#                                 os.remove(self.last_model_path)
-
-#                             # Update pointer to new model
-#                             self.last_model_path = model_path + ".zip"
-
-#                             # Update best winrate
-#                             self.last_saved_best_winrate = winrate
-
-#                             # If winrate threshold is achieved, stop training
-#                             if winrate >= self.winrate_threshold:
-#                                 return False
-
-#         return True
