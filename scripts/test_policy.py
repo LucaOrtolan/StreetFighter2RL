@@ -71,7 +71,7 @@ def play(env, model, episodes):
 
 def main():
     model_name = "/home/master26/Documents/StreetFighter2RL/saved_models/mu5_8_winrate_0.155_episode_82645"
-    state = "/home/master26/Documents/StreetFighter2RL/data/states/ryu_vs_ryu_8.state"
+    state = "/home/master26/Documents/StreetFighter2RL/data/states/ryu_vs_chunli_8.state"
     # record = os.path.join(os.path.dirname(os.path.dirname(__file__)), "replays")
     record = False
     rendering=True
