@@ -43,7 +43,7 @@ def random_agent(env, episodes=1):
 
 def main():
     game = sf_game
-    state = "ken"
+    state = "/home/emeralddawns/Documents/StreetFighter2RL/data/states/ryu_vs_balrog_1.state"
     side = "left" # side for AI to control
     reset_type = "match"
     rendering = True
