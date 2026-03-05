@@ -1,6 +1,7 @@
 import os
 from collections import deque
 from stable_baselines3.common.callbacks import BaseCallback
+from utils import make_env
 from const import *
 
 
@@ -50,12 +51,14 @@ class TrainAndLoggingCallback(BaseCallback):
 
                         # update winrate per matchup
                         enemy_char = info.get("enemy_character")
+                        if enemy_char not in self.matchups_wins.keys():
+                            self.matchups_wins[enemy_char] = deque(maxlen=self.winrate_buffer_size)
+                        
                         self.matchups_wins[enemy_char].append(outcome_cat)
                         matchup_winrate = sum(self.matchups_wins[enemy_char]) / len(self.matchups_wins[enemy_char])
                         self.logger.record(f"rollout/ep_winrate_{CHARACTER_MAPPING[enemy_char]}", matchup_winrate)
 
         return True
-
 
 class EarlyStoppingCallback(BaseCallback):
     """Early stopping if there are no improvements in mean reward per episode after a certain number of rollouts"""
@@ -131,7 +134,6 @@ class EarlyStoppingCallback(BaseCallback):
         
         return True 
 
-
 class OptunaTrainAndLoggingCallback(BaseCallback):
     """Callback for Optuna trials with TensorBoard logging, winrate tracking, and checkpointing."""
 
@@ -185,4 +187,21 @@ class LearningRateCallback(BaseCallback):
 
             self.last_reduce_episode = self.logger.name_to_value["rollout/episode_count"]
 
+        return True
+
+class CurriculumLearningCallback(BaseCallback):
+
+    def __init__(self, curriculum, target_winrate=.9, verbose=1):
+        super().__init__(verbose)
+        self.curriculum = curriculum
+        self.target_winrate = target_winrate
+
+    def _on_rollout_end(self):
+        if self.logger.name_to_value.get("rollout/episode_count") > 10:
+            path = "/home/master26/Documents/StreetFighter2RL/data/states/ryu_vs_zangief_8.state"
+            states = [path]
+            
+            self.locals["env"].update_env(states, [0])
+
+    def _on_step(self):
         return True

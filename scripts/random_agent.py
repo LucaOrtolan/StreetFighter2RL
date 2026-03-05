@@ -1,5 +1,4 @@
 from wrapper import SFWrapper
-from stable_baselines3.common.monitor import Monitor
 import stable_retro as retro
 from const import *
 
@@ -25,8 +24,6 @@ def make_env(game,
     )
     
     env = SFWrapper(env, side=side, rendering=rendering, reset_type=reset_type, init_level=init_level, state_dir=state_dir, verbose=verbose, enable_combo=enable_combo, null_combo=null_combo, transform_action=transform_action, num_stack=num_stack, num_step_frames=num_step_frames)
-    # env = Monitor(env)
-
     return env
     
 
@@ -59,7 +56,6 @@ def main():
     episodes = 1
 
     env = make_env(game, state=state, side=side, reset_type=reset_type, rendering=rendering, verbose=verbose, enable_combo=enable_combo, null_combo=null_combo, transform_action=transform_action, num_stack=num_stack, num_step_frames=num_step_frames)
-
 
     random_agent(env, episodes)
 

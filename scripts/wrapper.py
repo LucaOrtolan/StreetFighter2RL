@@ -15,7 +15,7 @@ class SFWrapper(Wrapper):
     def __init__(self, env, side, reset_type="round", init_level=1, rendering=False, num_stack=12, num_step_frames=8, state_dir=None, verbose=False, enable_combo=True, null_combo=False, transform_action=False):
         super(SFWrapper, self).__init__(env)
         self.env = FrameStackObservation(env, stack_size=num_stack)
-
+    
         assert side in ['left', 'right', 'both'], "side should be 'left', 'right' or 'both'"
         self.side = side
 

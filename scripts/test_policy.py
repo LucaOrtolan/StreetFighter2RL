@@ -15,7 +15,7 @@ def load_model(model_name):
 def make_env(state,
             game=sf_game,
             side="left", 
-            reset_type="round", 
+            reset_type="match", 
             init_level=1,
             rendering=False,
             num_stack=12, 
@@ -70,13 +70,12 @@ def play(env, model, episodes):
 
 
 def main():
-    model_name = "best_model_400000"
-    state = "/home/master26/Documents/StreetFighter2RL/FightLadder/data/sf/curriculum/Level2.20.state"
+    model_name = "/home/master26/Documents/StreetFighter2RL/saved_models/mu5_8_winrate_0.155_episode_82645"
+    state = "/home/master26/Documents/StreetFighter2RL/data/states/ryu_vs_ryu_8.state"
     # record = os.path.join(os.path.dirname(os.path.dirname(__file__)), "replays")
     record = False
-    rendering=False
-    episodes = 10
-
+    rendering=True
+    episodes = 1
     env = make_env(state=state, rendering=rendering, record=record)
     model = load_model(model_name)
     play(env, model, episodes)

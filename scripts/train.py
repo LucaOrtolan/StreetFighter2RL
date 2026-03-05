@@ -13,7 +13,7 @@ def main():
     game = 'StreetFighterIISpecialChampionEdition-Genesis-v0'
     side = "left" # side for AI to control
     reset_type = "match"
-    rendering = False
+    rendering = True
     enable_combo = True # enable special move action space for environment
     null_combo = False # null action space for special move
     transform_action = False
