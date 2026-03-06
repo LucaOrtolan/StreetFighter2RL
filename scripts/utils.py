@@ -38,6 +38,15 @@ def linear_schedule(initial_value, final_value=0.0):
 
     return scheduler
 
+def get_state(matchup, lvl, STATE_DIR=STATE_DIR):
+    """Example arguments
+    
+        matchup = ryu_vs_ken
+        lvl = 1
+    """
+    state_to_load = STATE_DIR + f"/{matchup}_{lvl}.state"
+    return state_to_load
+
 # _worker function for custom SubprocVecEnv
 def _worker(  # noqa: C901
     remote: mp.connection.Connection,
