@@ -1,0 +1,52 @@
+#!/bin/bash
+
+echo "Running Project 1..."
+cd /path/to/project1
+/path/to/project1/venv/bin/python train.py
+
+echo "Running Project 2..."
+cd /path/to/project2
+/path/to/project2/venv/bin/python train.py
+
+echo "Both runs complete!"
+
+
+https://docs.conda.io/projects/conda/en/4.6.0/user-guide/tasks/manage-environments.html
+
+conda rename -n old_name  new_name
+
+conda activate env_sfrl
+
+
+
+tensorboard --logdir=logs
+
+"UNREAL" (Jaderberg et al., 2016) — "Reinforcement Learning with Unsupervised Auxiliary Tasks" — exactly this pattern of auxiliary prediction heads sharing a backbone with the main policy
+"Kickstarting Deep Reinforcement Learning" (Schmitt et al., 2018) — using one model to guide another
+Threat/value decomposition — search "reward decomposition reinforcement learning" (Russell & Zimdars, 2003)
+
+
+
+
+"Reinforcement Learning using Reward Expectations in Scenarios with Aleatoric Uncertainties"
+https://ieeexplore.ieee.org/document/9893651
+
+"Policy Invariance Under Reward Transformations" Ng, Harada, Russell (1999) - reward shaping
+https://people.eecs.berkeley.edu/~pabbeel/cs287-fa09/readings/NgHaradaRussell-shaping-ICML1999.pdf
+
+"Reward Shaping in Episodic Reinforcement Learning" Grzes & Kudenko (2010) - episodic tasks like game rounds.
+https://www.ifaamas.org/Proceedings/aamas2017/pdfs/p565.pdf
+
+"Playing Atari with Deep Reinforcement Learning" Mnih et al. (2013) - reward clipping and shaping in game RL
+https://arxiv.org/pdf/1312.5602
+
+"Hierarchical Reinforcement Learning With Monte Carlo Tree Search in Computer Fighting Game"
+https://ieeexplore.ieee.org/document/8378245
+
+"Mastering Fighting Game Using Deep Reinforcement Learning With Self-play"
+https://ieee-cog.org/2020/papers/paper_207.pdf
+
+"A Study on the Agent in Fighting Games Based on Deep Reinforcement Learning"
+https://onlinelibrary.wiley.com/doi/10.1155/2022/9984617
+
+
