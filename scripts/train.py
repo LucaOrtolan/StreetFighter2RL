@@ -21,6 +21,9 @@ import os
 from callbacks import TrainAndLoggingCallback, EarlyStoppingCallback
 from utils import make_env, linear_schedule
 
+from callbacks import TrainAndLoggingCallback, EarlyStoppingCallback
+
+
 # ---------------------------------------------------------------------------
 # Directory paths (relative to the project root, one level above this file)
 # ---------------------------------------------------------------------------
@@ -29,7 +32,7 @@ from utils import make_env, linear_schedule
 CHECKPOINT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "train")
 
 # Where TensorBoard logs are written.
-LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
+LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs/exp1")
 
 # Directory containing the .state save-files that define each matchup.
 STATE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data/states")
@@ -37,7 +40,7 @@ STATE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data/state
 
 def main():
     game = 'StreetFighterIISpecialChampionEdition-Genesis-v0'
-    side = "left" # side for AI to control
+    side = "left" # left, right, both - side for AI to control
     reset_type = "match"  # Episode ends after a full best-of-3 match.
     rendering = False  # No display window during training (faster)
     enable_combo = True # enable special move action space for environment
@@ -70,11 +73,32 @@ def main():
     # The "_8" suffix in state filenames corresponds to arcade difficulty level 8.
     # ---------------------------------------------------------------------------
 
-    envs_per_matchup = {"ryu_vs_ken_8" : 2,   # 2 workers fighting Ken on difficulty 8
-                        "ryu_vs_guile_8": 2,
-                        "ryu_vs_chunli_8": 2,
-                        "ryu_vs_ryu_8": 2,
-                        "ryu_vs_sagat_8": 2}   
+    lvl = 1
+    envs_ind = 6
+
+    opponents = [
+                # "balrog",
+                #  "bison",
+                #  "blanka",
+                #  "chunli",
+                #  "dhalsim",
+                #  "guile",
+                #  "honda",
+                 "ken",
+                 "ryu",
+                 # "sagat",
+                 # "vega",
+                 # "zangief",
+    ]
+
+    envs_per_matchup = {f"ryu_vs_{opp}_{lvl}": envs_ind for opp in opponents}
+
+    # envs_per_matchup = {
+    #                     f"ryu_vs_ken_{lvl}" : 2,   # 2 workers fighting Ken on difficulty 8
+    #                     f"ryu_vs_guile_{lvl}": 2,
+    #                     f"ryu_vs_chunli_{lvl}": 2,
+    #                     f"ryu_vs_ryu_{lvl}": 2,
+    #                     f"ryu_vs_sagat_{lvl}": 2}
 
     # Build the list of factory functions for SubprocVecEnv.
     # Each call to make_env() returns a closure (_init) that SubprocVecEnv
@@ -90,7 +114,7 @@ def main():
     env = SubprocVecEnv(env_list)
 
     model = PPO(
-        "CnnPolicy", # Convolutional policy (suitable for pixel observations).
+        "CnnPolicy",  #"CnnPolicy", # Convolutional policy (suitable for pixel observations).
         env,
         device="cuda", 
         verbose=1,
@@ -114,7 +138,7 @@ def main():
                                                     delete_previous_best_model=True,
                                                     patience=patience,
                                                     min_improvement=min_improvement)
-    
+
     model.learn(total_timesteps=num_timesteps, callback=[logging_callback, early_stopping_callback])
 
 if __name__ == "__main__":

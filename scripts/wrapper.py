@@ -33,6 +33,7 @@ from stable_baselines3.common.monitor import Monitor
 from typing import Optional, Tuple, Union
 from stable_baselines3.common.type_aliases import GymObs, GymStepReturn
 import cv2
+from rewards import get_rewards
 
 class SFWrapper(Wrapper):
     """
@@ -191,6 +192,10 @@ class SFWrapper(Wrapper):
         self.enable_combo = enable_combo
         self.null_combo = null_combo
 
+        # EXP: damage_taken tuning
+        self.max_damage_taken = 0.0
+        self.max_damage_dealt = 0.0
+
     def save_state_to_file(self, name="test.state"):
         """
         Dump the current emulator save-state to a gzip-compressed .state file.
@@ -281,14 +286,18 @@ class SFWrapper(Wrapper):
         self.match_status = START_STATUS
         self.round_status = END_STATUS
 
-        # during_transation=True while the game is showing a non-playable
+        # during_transition=True while the game is showing a non-playable
         # transition (e.g. KO screen, continue screen).  No reward is given
         # and custom_done is determined only by win/loss counts.
-        self.during_transation = True
+        self.during_transition = True
 
         self.round_num = 0      # Rounds completed in the current match.
         self.extra_round = False  # True if a draw forced an extra deciding round.
         self.total_timesteps = 0
+
+        # EXP: damage taken tuning
+        self.max_damage_taken = 0.0
+        self.max_damage_dealt = 0.0
 
         return self._get_obs(obs), info
 
@@ -432,6 +441,12 @@ class SFWrapper(Wrapper):
         truncated  : bool        – True if the episode hit a time limit
         info       : dict        – game RAM state + episode metadata
         """
+
+        # info = {}
+        # info["damage_taken"] = 0
+        # info["damage_dealt"] = 0
+        # info["damage_reward"] = 0.0
+
         # Apply optional discrete-to-binary action transformation.
         if self.action_transformer is not None:
             action = self.action_transformer(action)
@@ -531,6 +546,7 @@ class SFWrapper(Wrapper):
         # Step the emulator num_step_frames times, holding the action sequence.
         # update_status() is called each frame to keep status flags current.
         # ---------------------------------------------------------------------------
+        self.hp_before_step = self.prev_agent_hp
         for i in range(self.num_step_frames):
             obs, _reward, _done, truncated, info = self.env.step(action_seq[i])
             self.update_status(info)
@@ -554,7 +570,7 @@ class SFWrapper(Wrapper):
         # rounds/matches; the second branch handles active gameplay.
         # ---------------------------------------------------------------------------
 
-        if self.during_transation and (
+        if self.during_transition and (
             self.match_status == END_STATUS or self.round_status == END_STATUS
         ):
             # --- Transition / cut-scene period ---
@@ -583,7 +599,7 @@ class SFWrapper(Wrapper):
 
         else:
             # --- Active gameplay ---
-            self.during_transation = False  # We are now inside a live round.
+            self.during_transition = False  # We are now inside a live round.
 
             if (agent_hp < 0 and enemy_hp < 0) or (timesup and agent_hp == enemy_hp):
                 # Double KO or time-out draw.
@@ -593,7 +609,7 @@ class SFWrapper(Wrapper):
                     custom_done = True
                 else:
                     custom_done = False
-                    self.during_transation = True
+                    self.during_transition = True
 
             elif agent_hp < 0 or (timesup and agent_hp < enemy_hp):
                 # Agent lost the round.
@@ -608,7 +624,7 @@ class SFWrapper(Wrapper):
                 if self.reset_type == "round":
                     custom_done = True
                 else:
-                    self.during_transation = True
+                    self.during_transition = True
                     if (enemy_victories >= 2) or (
                         (self.match_status == END_STATUS) and (enemy_victories > agent_victories)
                     ):
@@ -627,7 +643,7 @@ class SFWrapper(Wrapper):
                 if self.reset_type == "reset":
                     custom_done = True
                 else:
-                    self.during_transation = True
+                    self.during_transition = True
                     if (agent_victories >= 2) or (
                         (self.match_status == END_STATUS) and (agent_victories > enemy_victories)
                     ):
@@ -642,14 +658,30 @@ class SFWrapper(Wrapper):
                 # --- Mid-round: dense reward based on HP delta ---
                 # Reward = aggresive_coeff × damage dealt − damage received.
                 # prev_*_hp is updated here so next step's delta is relative to now.
-                custom_reward = self.dense_coeff * (
-                    self.aggresive_coeff * (self.prev_enemy_hp - enemy_hp)
-                    - (self.prev_agent_hp - agent_hp)
-                )
-                custom_reward_inverse = self.dense_coeff * (
-                    self.aggresive_coeff * (self.prev_agent_hp - agent_hp)
-                    - (self.prev_enemy_hp - enemy_hp)
-                )
+                damage_taken = max(0, self.prev_agent_hp - agent_hp)
+                damage_dealt = max(0, self.prev_enemy_hp - enemy_hp)
+
+
+                # HERE: Experiment with mid-round rewards here
+                # custom_reward = self.dense_coeff * (
+                #     self.aggresive_coeff * damage_dealt
+                #     - damage_taken
+                # )
+                #
+                # custom_reward_inverse = self.dense_coeff * (
+                #     self.aggresive_coeff * damage_taken
+                #     - damage_dealt
+                # )
+
+                # EXP: damage taken tuning
+                if self.max_damage_taken < damage_taken:
+                    self.max_damage_taken = damage_taken
+                if self.max_damage_dealt < damage_dealt:
+                    self.max_damage_dealt = damage_dealt
+
+                custom_reward = get_rewards(self.dense_coeff, self.aggresive_coeff, damage_taken, damage_dealt, False, max_damage_taken=self.max_damage_taken)
+                custom_reward_inverse = get_rewards(self.dense_coeff, self.aggresive_coeff, damage_dealt, damage_taken, False, max_damage_taken=self.max_damage_dealt)
+
                 self.prev_agent_hp = agent_hp
                 self.prev_enemy_hp = enemy_hp
                 custom_done = False
@@ -664,6 +696,8 @@ class SFWrapper(Wrapper):
                 info["outcome"] = (
                     "win" if (agent_hp > enemy_hp) else ("lose" if (agent_hp < enemy_hp) else "draw")
                 )
+
+        self.last_info = info
 
         # Scale rewards by 0.001 to keep values in a numerically stable range.
         if self.side == "left":
@@ -681,6 +715,9 @@ class SFWrapper(Wrapper):
                 info,
             )
 
+    def _opponent_attacking(self):
+        # True if the agent took damage in the last step
+        return self.last_info.get("health", self.hp_before_step) < self.hp_before_step
 
 # ---------------------------------------------------------------------------
 # Two-player monitor

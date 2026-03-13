@@ -1,4 +1,4 @@
-name: sfrl
+name: env_sfrl
 channels:
   - defaults
   - conda-forge

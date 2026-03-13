@@ -18,6 +18,7 @@ from collections import deque
 from stable_baselines3.common.callbacks import BaseCallback
 from utils import make_env
 from const import *
+import torch
 
 
 class TrainAndLoggingCallback(BaseCallback):

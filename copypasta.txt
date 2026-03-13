@@ -17,7 +17,7 @@ conda rename -n old_name  new_name
 
 conda activate env_sfrl
 
-
+python -m retro.import /home/emeralddawns/Documents/GitHub/ReinforcementFighters/data/gamefiles/rom.md
 
 tensorboard --logdir=logs
 
