@@ -73,25 +73,25 @@ def main():
     # The "_8" suffix in state filenames corresponds to arcade difficulty level 8.
     # ---------------------------------------------------------------------------
 
-    lvl = 1
+    # lvl = 1
     envs_ind = 6
 
-    opponents = [
-                # "balrog",
-                #  "bison",
-                #  "blanka",
-                #  "chunli",
-                #  "dhalsim",
-                #  "guile",
-                #  "honda",
-                 "ken",
-                 "ryu",
-                 # "sagat",
-                 # "vega",
-                 # "zangief",
-    ]
+    oppos_and_lvls = {
+                # "balrog": 1,
+                #  "bison": 1,
+                #  "blanka": 1,
+                #  "chunli": 1,
+                #  "dhalsim": 1,
+                #  "guile": 1,
+                #  "honda": 1,
+                 "ken": 1,
+                 "ryu": 1,
+                 # "sagat": 1,
+                 # "vega": 1,
+                 # "zangief": 1,
+    }
 
-    envs_per_matchup = {f"ryu_vs_{opp}_{lvl}": envs_ind for opp in opponents}
+    envs_per_matchup = {f"ryu_vs_{opp}_{lvl}": envs_ind for opp, lvl in oppos_and_lvls.items()}
 
     # envs_per_matchup = {
     #                     f"ryu_vs_ken_{lvl}" : 2,   # 2 workers fighting Ken on difficulty 8

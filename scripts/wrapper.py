@@ -679,8 +679,12 @@ class SFWrapper(Wrapper):
                 if self.max_damage_dealt < damage_dealt:
                     self.max_damage_dealt = damage_dealt
 
-                custom_reward = get_rewards(self.dense_coeff, self.aggresive_coeff, damage_taken, damage_dealt, False, max_damage_taken=self.max_damage_taken)
-                custom_reward_inverse = get_rewards(self.dense_coeff, self.aggresive_coeff, damage_dealt, damage_taken, False, max_damage_taken=self.max_damage_dealt)
+                # default reward structure (used by Luca)
+                default_rewards = True
+                custom_reward = get_rewards(self.dense_coeff, self.aggresive_coeff, damage_taken, damage_dealt,
+                                            defaults=default_rewards, max_damage_taken=self.max_damage_taken)
+                custom_reward_inverse = get_rewards(self.dense_coeff, self.aggresive_coeff, damage_dealt, damage_taken,
+                                                    defaults=default_rewards, max_damage_taken=self.max_damage_dealt)
 
                 self.prev_agent_hp = agent_hp
                 self.prev_enemy_hp = enemy_hp
