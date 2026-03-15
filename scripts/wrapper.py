@@ -296,8 +296,8 @@ class SFWrapper(Wrapper):
         self.total_timesteps = 0
 
         # EXP: damage taken tuning
-        self.max_damage_taken = 0.0
-        self.max_damage_dealt = 0.0
+        # self.max_damage_taken = 0.0
+        # self.max_damage_dealt = 0.0
 
         return self._get_obs(obs), info
 
