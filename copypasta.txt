@@ -19,7 +19,7 @@ conda activate env_sfrl
 
 python -m retro.import /home/emeralddawns/Documents/GitHub/ReinforcementFighters/data/gamefiles/rom.md
 
-tensorboard --logdir=logs
+tensorboard --logdir=logs/exp1
 
 "UNREAL" (Jaderberg et al., 2016) — "Reinforcement Learning with Unsupervised Auxiliary Tasks" — exactly this pattern of auxiliary prediction heads sharing a backbone with the main policy
 "Kickstarting Deep Reinforcement Learning" (Schmitt et al., 2018) — using one model to guide another
