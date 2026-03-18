@@ -20,36 +20,37 @@ def main():
     transform_action = False
     num_stack = 12 # number of frames to stack
     num_step_frames = 8 # number of frames per step
-    num_timesteps = 20_000_000
-    lr_schedule = linear_schedule(2.5e-4, 2.5e-6) # alternative approach
-    clip_range_schedule = linear_schedule(0.15, 0.025)
-    winrate_buffer_size = 50 # sample size for computing winrate rolling average
-    winrate_threshold = 0.70 # winrate threshold for curriculum learning
-    # import numpy as np
-    # patience = np.inf  # n° of rollouts to wait for improvements 
-    # min_improvement = 0.01  # minimum improvement for patience check
+    num_timesteps = 300_000_000
+    lr_schedule = linear_schedule(5.0e-5, 2.5e-6) # alternative approach
+    clip_range_schedule = linear_schedule(0.075, 0.025)
+    winrate_buffer_size = 100 # sample size for computing winrate rolling average
+    winrate_threshold = 0.75 # winrate threshold for curriculum learning
+    min_improvement = 0.01 # mean reward threshold for saving new model
+    patience = 2000
+    delete_previous_model = True
+
 
     curriculum = {
         "ryu_vs_ken" : {
-            "n_envs": 2, 
-            "levels": [i for i in range(1, 9)]
+            "n_envs": 5, 
+            "levels": [i for i in range(5, 9)]
             },
         "ryu_vs_chunli": {
-            "n_envs": 2,
-            "levels": [i for i in range(1, 9)]
+            "n_envs": 5,
+            "levels": [i for i in range(5, 9)]
             },
         "ryu_vs_guile": {
-            "n_envs": 2,
-            "levels": [i for i in range(1, 9)]
+            "n_envs": 5,
+            "levels": [i for i in range(5, 9)]
             },
         "ryu_vs_ryu": {
-            "n_envs": 2,
-            "levels": [i for i in range(1, 9)]
+            "n_envs": 5,
+            "levels": [i for i in range(5, 9)]
             },
-        "ryu_vs_sagat": {
-            "n_envs": 2,
-            "levels": [i for i in range(1, 9)]
-            }
+        # "ryu_vs_sagat": {
+        #     "n_envs": 4,
+        #     "levels": [i for i in range(1, 9)]
+        #     }
         }  
 
     env_list = []
@@ -62,30 +63,39 @@ def main():
     
     env = SubprocVecEnvCL(env_list)
 
-    model = PPO(
-        "CnnPolicy", 
-        env,
-        device="cuda", 
-        verbose=1,
-        n_steps=512, 
-        batch_size=1024, # multiple of n_steps
-        gamma=0.94,
-        n_epochs=4,
-        learning_rate=lr_schedule,
-        clip_range=clip_range_schedule,
-        tensorboard_log=LOG_DIR,
-    )
+    # model = PPO(
+    #     "CnnPolicy", 
+    #     env,
+    #     device="cuda", 
+    #     verbose=1,
+    #     n_steps=512, 
+    #     batch_size=1024, # multiple of n_steps
+    #     gamma=0.94,
+    #     n_epochs=4,
+    #     learning_rate=lr_schedule,
+    #     clip_range=clip_range_schedule,
+    #     tensorboard_log=LOG_DIR,
+    # )
 
-    logging_callback = TrainAndLoggingCallback(winrate_buffer_size=winrate_buffer_size)
-
-    cl_callback = CurriculumLearningCallback(curriculum=curriculum, cooldown=winrate_buffer_size, winrate_threshold=winrate_threshold)
+    model = PPO.load("/home/master26/Documents/StreetFighter2RL/saved_models/cl4mu_run/mu4cl_final_model_winrate_0.54.zip",
+                     env=env,
+                     device="cuda")
     
-    early_stopping_callback = EarlyStoppingCallback(save_path=CHECKPOINT_DIR,
-                                                delete_previous_best_model=True,
-                                                patience=patience,
-                                                min_improvement=min_improvement)
+    cl_callback = CurriculumLearningCallback(winrate_buffer_size=winrate_buffer_size, 
+                                             save_path=CHECKPOINT_DIR,
+                                             min_improvement=min_improvement,
+                                             curriculum=curriculum, 
+                                             winrate_threshold=winrate_threshold,
+                                             patience=patience,
+                                             delete_previous_model=delete_previous_model)
+    
                                                 
-    model.learn(total_timesteps=num_timesteps, callback=[logging_callback, cl_callback, early_stopping_callback])
+    model.learn(total_timesteps=num_timesteps, callback=[cl_callback])
+
+    # export final model
+    model_path = os.path.join(CHECKPOINT_DIR, f"final_model_winrate_{cl_callback.winrates['global'].get('winrate')}.zip")
+    model.save(model_path)
+
 
 if __name__ == "__main__":
     main()

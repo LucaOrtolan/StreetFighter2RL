@@ -6,6 +6,7 @@ from stable_baselines3.common.vec_env.patch_gym import _patch_env
 from typing import Any, Optional
 from wrapper import SFWrapper
 import multiprocessing as mp
+import re
 import os
 
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
@@ -46,6 +47,13 @@ def get_state(matchup, lvl, STATE_DIR=STATE_DIR):
     """
     state_to_load = STATE_DIR + f"/{matchup}_{lvl}.state"
     return state_to_load
+
+def extract_matchup(path):
+    basename = os.path.splitext(os.path.basename(path))[0]  # e.g. "ryu_vs_ken_1"
+    # matchup = re.sub(r"_\d+$", "", basename)  # -> "ryu_vs_ken"
+    return basename
+
+
 
 # _worker function for custom SubprocVecEnv
 def _worker(  # noqa: C901

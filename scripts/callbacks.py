@@ -1,9 +1,11 @@
 import os
 import re
-from collections import deque
+from collections import deque, Counter
 from stable_baselines3.common.callbacks import BaseCallback
-from utils import make_env, get_state
+from utils import get_state, extract_matchup
 from const import *
+import pandas as pd
+import numpy as np
 
 
 class TrainAndLoggingCallback(BaseCallback):
@@ -14,9 +16,10 @@ class TrainAndLoggingCallback(BaseCallback):
     def __init__(self, verbose=1, winrate_buffer_size=100):
         super(TrainAndLoggingCallback, self).__init__(verbose)
         self.winrate_buffer_size = winrate_buffer_size
-        self.last_model_path = None  # track previous checkpoint
         self.episode_count = {"global": 0}
-        self.winrates = {"global": deque(maxlen=winrate_buffer_size)}
+        self.winrates = {"global": {
+            "buffer": deque(maxlen=winrate_buffer_size),
+            "winrate": None}}
 
     def _init_callback(self):
         self.logger.record("train/batch_size", self.model.batch_size)
@@ -28,38 +31,55 @@ class TrainAndLoggingCallback(BaseCallback):
     def _on_step(self):
         # Winrate tracking - check episode terminations
         if self.locals.get("infos"):
-            for info in self.locals["infos"]:
+            for idx, info in enumerate(self.locals["infos"]):
                 # Check if episode ended (works with both Gymnasium and Gym APIs)
                 if info.get("episode"):
                     self.episode_count["global"] += 1
                     # Get win indicator from info (ensure SFWrapper sets this)
                     outcome = info.get("outcome")
-                    # if isinstance(outcome, str):
                     outcome_cat = 1.0 if outcome == "win" else 0.0
-                    self.winrates["global"].append(outcome_cat)
+                    self.winrates["global"]["buffer"].append(outcome_cat)
 
-                    self.logger.record("time/episode_count", self.episode_count["global"])        
+                    statename = self.model.env.get_attr("statename")[idx]
+                    statename = extract_matchup(statename)
+                    matchup = re.sub(r"_\d+$", "", statename) 
 
-                    enemy_character = CHARACTER_MAPPING[info["enemy_character"]]
-                    if enemy_character not in self.winrates.keys():
-                        self.winrates[enemy_character] = deque(maxlen=self.winrate_buffer_size)
-                    if enemy_character not in self.episode_count.keys():
-                        self.episode_count[enemy_character] = 0
+                    if matchup not in self.winrates.keys():
+                        self.winrates[matchup] = {}
+                        self.winrates[matchup]["buffer"] = deque(maxlen=self.winrate_buffer_size)
+                    if matchup not in self.episode_count.keys():
+                        self.episode_count[matchup] = 0
                     
-                    self.winrates[enemy_character].append(outcome_cat)
-                    self.episode_count[enemy_character] += 1
-
-                    self.logger.record(f"time/episode_count_{enemy_character}", self.episode_count[enemy_character])
+                    self.winrates[matchup]["buffer"].append(outcome_cat)
+                    self.episode_count[matchup] += 1
 
                     if self.episode_count["global"] >= self.winrate_buffer_size:
-                        global_winrate = sum(self.winrates["global"]) / len(self.winrates["global"])
-                        self.logger.record("rollout/ep_winrate", global_winrate)
+                        global_winrate = sum(self.winrates["global"]["buffer"]) / len(self.winrates["global"]["buffer"])
+                        self.winrates["global"]["winrate"] = global_winrate
 
                         # update winrate per matchup                        
-                        matchup_winrate = sum(self.winrates[enemy_character]) / len(self.winrates[enemy_character])
-                        self.logger.record(f"rollout/ep_winrate_{enemy_character}", matchup_winrate)
+                        matchup_winrate = sum(self.winrates[matchup]["buffer"]) / len(self.winrates[matchup]["buffer"])
+                        self.winrates[matchup]["winrate"] = matchup_winrate
+
+        # log all episode counts and winrates        
+        for matchup, value in self.winrates.items():
+            # handle global case
+            if matchup == "global":
+                self.logger.record(f"time/episode_count", self.episode_count[matchup])
+                if value.get("winrate") is not None:
+                    self.logger.record(f"rollout/ep_winrate", value.get("winrate"))
+                continue
+
+            # send opponent's name to logs for short
+            enemy_character = matchup.split("_")[-1]
+
+            self.logger.record(f"time/episode_count_{enemy_character}", self.episode_count[matchup])
+
+            if value.get("winrate") is not None:
+                self.logger.record(f"rollout/ep_winrate_{enemy_character}", value.get("winrate"))
 
         return True
+
 
 class EarlyStoppingCallback(BaseCallback):
     """Early stopping if there are no improvements in mean reward per episode after a certain number of rollouts"""
@@ -190,79 +210,219 @@ class LearningRateCallback(BaseCallback):
 
         return True
 
-class CurriculumLearningCallback(BaseCallback):
+class CurriculumLearningCallback(TrainAndLoggingCallback):
+    """Multi functional Callback for implementing Curriculum Learning. Performs logging for every metric, state update and saves best model."""
 
-    def __init__(self, curriculum, winrate_threshold=.9, cooldown = 100, verbose=1):
-        super().__init__(verbose)
+    def __init__(self, curriculum, save_path, winrate_threshold=.9, winrate_buffer_size=100, min_improvement=0.01, patience=1000, delete_previous_model=True, verbose=1):
+        super(CurriculumLearningCallback, self).__init__(verbose, winrate_buffer_size=winrate_buffer_size)
+        ###### curriculum parameters
         self.curriculum = curriculum
         self.winrate_threshold = winrate_threshold
-        self.cooldown_duration = cooldown # must be equal to winrate buffer size
-        self.cooldown = self.cooldown_duration
-        self.max_level = 8 
-    
+        self.cooldown_duration = winrate_buffer_size # must be equal to winrate buffer size
+        self.last_level_reached = False
+        self.max_level = 8
+        self.cooldown = {k: self.cooldown_duration for k in self.curriculum.keys()}  # cooldown is computed per matchup
+
+        ###### early stopping parameters
+        self.save_path = save_path
+        self.best_model_path = None
+        self.min_improvement = min_improvement
+        self.patience = patience
+        self.patience_counter = 0
+        self.delete_previous_model = delete_previous_model
+        self.best_mean_reward = 0
+
     def _init_callback(self):
+        super()._init_callback()
         for matchup in self.curriculum.keys():
             self.curriculum[matchup]["current_lvl_idx"] = 0 # keeps track of the index of the current level
+    
+        if self.save_path is not None:
+            os.makedirs(self.save_path, exist_ok=True)
 
     def _on_rollout_end(self):
-        current_winrate = self.logger.name_to_value.get("rollout/ep_winrate")
-
+        current_winrate = self.winrates["global"].get("winrate")
         if current_winrate is not None:
-            if (current_winrate >= self.winrate_threshold) and (self.cooldown == 0):
-                new_states = []
-                envs_to_update = []
-                last_updated_matchup = None
-                for env_idx in range(self.model.env.num_envs):  
-                    matchup = self.extract_matchup(self.model.env.get_attr('statename')[env_idx])
-      
-                    if self.curriculum.get(matchup) is not None:
-                        # get level from idx
-                        self.curriculum[matchup]["current_lvl_idx"] += 1
+            # make sure all matchups have played enough episodes 
+            if all(v == 0 for v in self.cooldown.values()):
+                # get current difficulty for model save
+                # check current level idx
+                sample_matchup = list(self.curriculum.keys())[0]
+                current_lvl_idx = self.curriculum[sample_matchup]["current_lvl_idx"]
+                current_difficulty = self.curriculum[sample_matchup]["levels"][self.curriculum[sample_matchup]["current_lvl_idx"]]
 
-                        # check if current level is the max level
-                        if self.curriculum[matchup]["current_lvl_idx"] < len(self.curriculum[matchup]["levels"]):
-                            # avoid increasing level of an env with a matchup that has already been updated
-                            if matchup != last_updated_matchup:
-                                next_lvl = self.curriculum[matchup]["levels"][self.curriculum[matchup]["current_lvl_idx"]]
+                # reallocate envs
+                self.reallocate_envs()
 
-                            assert next_lvl <= 8, "Curriculum level exceeds maximum level"
+                # raise difficulty and export model is winrate threshold is met
+                if (current_winrate >= self.winrate_threshold) & (current_lvl_idx < len(self.curriculum[sample_matchup]["levels"])):
+                    # export model
+                    model_path = os.path.join(self.save_path, f"final_model_difficulty_{current_difficulty}.zip")
+                    self.model.save(model_path)
 
-                            new_states.append(get_state(matchup, next_lvl))
-                            envs_to_update.append(env_idx)
+                    # raise difficulty level and reset envs allocation
+                    self.raise_difficulty()
 
-                            last_updated_matchup = matchup
-
-
-                # load new states 
-                self.locals["env"].update_env(new_states, envs_to_update)
+                    # reset cooldown, patience counter and best mean reward
+                    self.cooldown = {k: self.cooldown_duration for k in self.curriculum.keys()}       
+                    self.best_mean_reward = 0    
+                    self.patience_counter = 0
+                
+                # calculate mean reward and export best model if threshold is met
+                else:
+                    current_mean_reward = self.get_mean_reward()
+                    if current_mean_reward is not None:
                         
-                # reset cooldown
-                self.cooldown = self.cooldown_duration
+                        if current_mean_reward >= self.best_mean_reward + self.min_improvement:
+                            # replace best mean reward if it's higher
+                            self.best_mean_reward = current_mean_reward
 
-        
+                            # delete previous best model
+                            if (self.best_model_path is not None) and (os.path.exists(self.best_model_path)) and (self.delete_previous_model):
+                                os.remove(self.best_model_path)
+
+                            # save model
+                            self.best_model_path = os.path.join(self.save_path, f"best_model_difficulty_{current_difficulty}_winrate_{current_winrate}.zip")
+                            self.model.save(self.best_model_path)
+
+                            # reset patience counter
+                            self.patience_counter = 0
+
+                            if self.verbose > 0:
+                                print(
+                                    f"New best ep_rew_mean={self.best_mean_reward:.4f}, "
+                                    f"saved model to {self.best_model_path}"
+                                )
+
+                        # increase patience counter
+                        else:
+                            self.patience_counter += 1
+
+
     def _on_step(self):
-        matchups = set()
+        super()._on_step()
+
+        # get state data from the envs
+        matchups_running = []      
         for env_idx in range(self.model.env.num_envs):
             # get_attr safely fetches from worker processes
             statename = self.model.env.get_attr('statename')[env_idx]
-            matchup = self.extract_matchup(statename, include_level=True)
-            matchups.add(matchup)
+            basename = extract_matchup(statename)
+            # # use the following line only for debugging
+            # self.logger.record(f"training_curriculum_CHECK/difficulty_{basename.split('_')[-2]}", basename.split('_')[-1])
+            matchups_running.append(re.sub(r"_\d+$", "", basename))
+            
+        # record envs per matchup
+        counter = Counter(matchups_running)
 
-        for matchup in matchups:
-            self.logger.record(f"training_curriculum/difficulty_{matchup.split('_')[-2]}", int(matchup.split('_')[-1]))
+        # log curriculum level for each matchup
+        for matchup, value in self.curriculum.items():
+            current_level = value["levels"][value["current_lvl_idx"]]
+            self.logger.record(f"training_curriculum/difficulty_{matchup.split('_')[-1]}", int(current_level))
 
+            # log env distribution for each matchup
+            n_envs = counter[matchup] if matchup in counter else 0
+            self.logger.record(f"training_envs/{matchup.split('_')[-1]}", n_envs)
+            
         # reduce cooldown by number of episodes intercurred since last update
         if self.locals.get("infos"):
-            for info in self.locals["infos"]:
-                # Check if episode ended (works with both Gymnasium and Gym APIs)
+            for idx, info in enumerate(self.locals["infos"]):
                 if info.get("episode"):
-                    self.cooldown = max(self.cooldown - 1, 0)
-        self.logger.record("training_curriculum/cooldown", self.cooldown)
+                    statename = self.model.env.get_attr("statename")[idx]
+                    statename = extract_matchup(statename)
+                    matchup = re.sub(r"_\d+$", "", statename) 
+                    self.cooldown[matchup] = max(self.cooldown[matchup] - 1, 0)
+                    self.logger.record(f"training_matchups_cooldowns/cooldown_{matchup.split('_')[-1]}", self.cooldown[matchup])
+
+        # log best mean reward of the last saved model
+        if self.best_mean_reward is not None:
+            self.logger.record("train/last_saved_mean_reward", self.best_mean_reward)
+
+        # log patience counter
+        self.logger.record("rollout/patience_counter", self.patience_counter)
+        # stop training if (number of rollouts since last save) >= patience
+        if self.patience_counter >= self.patience:
+            while True:
+                continue_training = input("Patience limit reached. Continue training? [y/n]")     
+                if continue_training == "y":
+                    self.patience_counter = 0
+                    return True
+                elif continue_training == "n":
+                    return False
+                else:
+                    print("Type either 'y' or 'n'") 
+
         return True
-    
-    def extract_matchup(self, path, include_level=False):
-        basename = os.path.splitext(os.path.basename(path))[0]  # e.g. "ryu_vs_ken_1"
-        if include_level:
-            return basename
-        matchup = re.sub(r"_\d+$", "", basename)  # -> "ryu_vs_ken"
-        return matchup
+        
+    def raise_difficulty(self):
+        for matchup in self.curriculum.keys():  
+            # get level from idx
+            self.curriculum[matchup]["current_lvl_idx"] += 1 
+
+            next_lvl = self.curriculum[matchup]["levels"][self.curriculum[matchup]["current_lvl_idx"]]
+
+            assert next_lvl <= self.max_level, "Curriculum level exceeds maximum level"
+        
+        self.reset_env_allocation()
+
+    def reallocate_envs(self):
+        # create winrates dict for all matchups
+        winrates_dict = {}
+        for name, value in self.winrates.items():
+            if name != "global":
+                # ensure winrates for all matchups are available
+                if value.get("winrate") is not None:
+                    winrates_dict[name] = value.get("winrate")
+                else:
+                    return
+        
+        winrates_df = pd.DataFrame(winrates_dict, index=[0])
+        winrates_df = winrates_df.T.copy()
+        winrates_df.columns = ["winrate"]
+
+        # rescale winrates into weigths 
+        # matchup weight increases for lower winrates
+        winrates_df["weight"] = (1 - winrates_df["winrate"]).div((1 - winrates_df["winrate"]).sum(), axis=0)
+
+        # calculate envs to allocate based on weights
+        winrates_df["allocation"] = np.floor(winrates_df["weight"] * self.model.n_envs).astype(int)
+
+        # ensure each matchup has at least 1 dedicated env
+        winrates_df["allocation"] = winrates_df["allocation"].where(winrates_df["allocation"]!=0, 1)
+
+        # if there are envs remaining, allocate them to the matchup with the highest weight
+        remaining = self.model.n_envs - winrates_df["allocation"].sum()
+        if remaining > 0:
+            highest_idx = np.argmax(winrates_df["weight"])
+            winrates_df.loc[winrates_df.index[highest_idx], "allocation"] += remaining
+
+        # reallocate the envs
+        new_states = []
+        for matchup, row in winrates_df.iterrows():
+            # fetch the current level being used
+            current_diff_lvl = self.curriculum[matchup]["levels"][self.curriculum[matchup]["current_lvl_idx"]]
+            envs_to_allocate = row["allocation"].astype(np.int32)
+            if envs_to_allocate != 0:
+                for _ in range(envs_to_allocate):
+                    new_states.append(get_state(matchup, current_diff_lvl))
+
+        
+        envs_to_update = [i for i in range(self.model.env.num_envs)]
+        self.locals["env"].update_env(new_states, envs_to_update)
+
+    def reset_env_allocation(self):
+        new_states = []
+        envs_to_update = [i for i in range(self.model.env.num_envs)]
+
+        for matchup, value in self.curriculum.items():
+            for _ in range(value["n_envs"]):
+                new_states.append(get_state(matchup, value["levels"][value["current_lvl_idx"]]))
+
+        self.locals["env"].update_env(new_states, envs_to_update)
+
+    def get_mean_reward(self):
+        try:
+            current_mean_reward = sum([ep_info["r"] for ep_info in self.model.ep_info_buffer])/len([ep_info["r"] for ep_info in self.model.ep_info_buffer])
+            return current_mean_reward
+        except ZeroDivisionError:
+            return
