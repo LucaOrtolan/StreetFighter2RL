@@ -230,7 +230,7 @@ class CurriculumLearningCallback(TrainAndLoggingCallback):
         self.patience = patience
         self.patience_counter = 0
         self.delete_previous_model = delete_previous_model
-        self.best_mean_reward = 0
+        self.best_winrate = 0
 
     def _init_callback(self):
         super()._init_callback()
@@ -255,7 +255,7 @@ class CurriculumLearningCallback(TrainAndLoggingCallback):
                 self.reallocate_envs()
 
                 # raise difficulty and export model is winrate threshold is met
-                if (current_winrate >= self.winrate_threshold) & (current_lvl_idx < len(self.curriculum[sample_matchup]["levels"])):
+                if (current_winrate >= self.winrate_threshold) & (current_lvl_idx < len(self.curriculum[sample_matchup]["levels"])-1):
                     # export model
                     model_path = os.path.join(self.save_path, f"final_model_difficulty_{current_difficulty}.zip")
                     self.model.save(model_path)
@@ -265,38 +265,35 @@ class CurriculumLearningCallback(TrainAndLoggingCallback):
 
                     # reset cooldown, patience counter and best mean reward
                     self.cooldown = {k: self.cooldown_duration for k in self.curriculum.keys()}       
-                    self.best_mean_reward = 0    
+                    self.best_winrate = 0    
                     self.patience_counter = 0
                 
                 # calculate mean reward and export best model if threshold is met
                 else:
-                    current_mean_reward = self.get_mean_reward()
-                    if current_mean_reward is not None:
-                        
-                        if current_mean_reward >= self.best_mean_reward + self.min_improvement:
-                            # replace best mean reward if it's higher
-                            self.best_mean_reward = current_mean_reward
+                    if current_winrate >= self.best_winrate + self.min_improvement:
+                        # replace best mean reward if it's higher
+                        self.best_winrate = current_winrate
 
-                            # delete previous best model
-                            if (self.best_model_path is not None) and (os.path.exists(self.best_model_path)) and (self.delete_previous_model):
-                                os.remove(self.best_model_path)
+                        # delete previous best model
+                        if (self.best_model_path is not None) and (os.path.exists(self.best_model_path)) and (self.delete_previous_model):
+                            os.remove(self.best_model_path)
 
-                            # save model
-                            self.best_model_path = os.path.join(self.save_path, f"best_model_difficulty_{current_difficulty}_winrate_{current_winrate}.zip")
-                            self.model.save(self.best_model_path)
+                        # save model
+                        self.best_model_path = os.path.join(self.save_path, f"best_model_difficulty_{current_difficulty}_winrate_{current_winrate}.zip")
+                        self.model.save(self.best_model_path)
 
-                            # reset patience counter
-                            self.patience_counter = 0
+                        # reset patience counter
+                        self.patience_counter = 0
 
-                            if self.verbose > 0:
-                                print(
-                                    f"New best ep_rew_mean={self.best_mean_reward:.4f}, "
-                                    f"saved model to {self.best_model_path}"
-                                )
+                        if self.verbose > 0:
+                            print(
+                                f"New best winrate={self.best_winrate:.4f}, "
+                                f"saved model to {self.best_model_path}"
+                            )
 
-                        # increase patience counter
-                        else:
-                            self.patience_counter += 1
+                    # increase patience counter
+                    else:
+                        self.patience_counter += 1
 
 
     def _on_step(self):
@@ -335,8 +332,8 @@ class CurriculumLearningCallback(TrainAndLoggingCallback):
                     self.logger.record(f"training_matchups_cooldowns/cooldown_{matchup.split('_')[-1]}", self.cooldown[matchup])
 
         # log best mean reward of the last saved model
-        if self.best_mean_reward is not None:
-            self.logger.record("train/last_saved_mean_reward", self.best_mean_reward)
+        if self.best_winrate is not None:
+            self.logger.record("train/last_saved_winrate", self.best_winrate)
 
         # log patience counter
         self.logger.record("rollout/patience_counter", self.patience_counter)
