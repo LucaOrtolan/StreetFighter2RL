@@ -14,11 +14,13 @@ CurriculumLearningCallback   – (WIP) Updates the environment state for curricu
 """
 
 import os
-from collections import deque
+import re
+from collections import deque, Counter
 from stable_baselines3.common.callbacks import BaseCallback
-from utils import make_env
+from utils import get_state, extract_matchup
 from const import *
-import torch
+import pandas as pd
+import numpy as np
 
 
 class TrainAndLoggingCallback(BaseCallback):
@@ -341,44 +343,224 @@ class LearningRateCallback(BaseCallback):
         return True
 
 
-class CurriculumLearningCallback(BaseCallback):
-    """
-    (Work in Progress) Updates the environment save-state for curriculum learning.
+class CurriculumLearningCallback(TrainAndLoggingCallback):
+    """Multi functional Callback for implementing Curriculum Learning. Performs logging for every metric, state update and saves best model."""
 
-    The idea: once the agent reaches a target win-rate against the current
-    opponent, swap in a harder save-state so the agent faces a more challenging
-    scenario.  Currently hardcoded to a single state path for development/testing.
-
-    Parameters
-    ----------
-    curriculum : list
-        Ordered list of (state_path, difficulty_info) tuples defining the curriculum.
-    target_winrate : float
-        Win-rate threshold at which to advance to the next curriculum stage.
-    verbose : int
-        Verbosity level.
-    """
-
-    def __init__(self, curriculum, target_winrate=0.9, verbose=1):
-        super().__init__(verbose)
+    def __init__(self, curriculum, save_path, winrate_threshold=.9, winrate_buffer_size=100, min_improvement=0.01,
+                 patience=1000, delete_previous_model=True, verbose=1):
+        super(CurriculumLearningCallback, self).__init__(verbose, winrate_buffer_size=winrate_buffer_size)
+        ###### curriculum parameters
         self.curriculum = curriculum
-        self.target_winrate = target_winrate
+        self.winrate_threshold = winrate_threshold
+        self.cooldown_duration = winrate_buffer_size  # must be equal to winrate buffer size
+        self.last_level_reached = False
+        self.max_level = 8
+        self.cooldown = {k: self.cooldown_duration for k in self.curriculum.keys()}  # cooldown is computed per matchup
+
+        ###### early stopping parameters
+        self.save_path = save_path
+        self.best_model_path = None
+        self.min_improvement = min_improvement
+        self.patience = patience
+        self.patience_counter = 0
+        self.delete_previous_model = delete_previous_model
+        self.best_mean_reward = 0
+
+    def _init_callback(self):
+        super()._init_callback()
+        for matchup in self.curriculum.keys():
+            self.curriculum[matchup]["current_lvl_idx"] = 0  # keeps track of the index of the current level
+
+        if self.save_path is not None:
+            os.makedirs(self.save_path, exist_ok=True)
 
     def _on_rollout_end(self):
-        """
-        Called after each rollout: check if we should advance the curriculum.
+        current_winrate = self.winrates["global"].get("winrate")
+        if current_winrate is not None:
+            # make sure all matchups have played enough episodes
+            if all(v == 0 for v in self.cooldown.values()):
+                # get current difficulty for model save
+                # check current level idx
+                sample_matchup = list(self.curriculum.keys())[0]
+                current_lvl_idx = self.curriculum[sample_matchup]["current_lvl_idx"]
+                current_difficulty = self.curriculum[sample_matchup]["levels"][
+                    self.curriculum[sample_matchup]["current_lvl_idx"]]
 
-        TODO: replace hardcoded path and index with dynamic curriculum logic
-        that reads target_winrate and steps through self.curriculum.
-        """
-        if self.logger.name_to_value.get("rollout/episode_count") > 10:
-            # Hardcoded state path — replace with dynamic curriculum advancement.
-            path = "/home/master26/Documents/StreetFighter2RL/data/states/ryu_vs_zangief_8.state"
-            states = [path]
-            # update_env() sends a "update_state" command to the subprocess workers
-            # (see SubprocVecEnvCL in utils.py) to hot-swap the save-state without
-            # restarting the worker processes.
-            self.locals["env"].update_env(states, [0])
+                # reallocate envs
+                self.reallocate_envs()
+
+                # raise difficulty and export model is winrate threshold is met
+                if (current_winrate >= self.winrate_threshold) & (
+                        current_lvl_idx < len(self.curriculum[sample_matchup]["levels"])):
+                    # export model
+                    model_path = os.path.join(self.save_path, f"final_model_difficulty_{current_difficulty}.zip")
+                    self.model.save(model_path)
+
+                    # raise difficulty level and reset envs allocation
+                    self.raise_difficulty()
+
+                    # reset cooldown, patience counter and best mean reward
+                    self.cooldown = {k: self.cooldown_duration for k in self.curriculum.keys()}
+                    self.best_mean_reward = 0
+                    self.patience_counter = 0
+
+                # calculate mean reward and export best model if threshold is met
+                else:
+                    current_mean_reward = self.get_mean_reward()
+                    if current_mean_reward is not None:
+
+                        if current_mean_reward >= self.best_mean_reward + self.min_improvement:
+                            # replace best mean reward if it's higher
+                            self.best_mean_reward = current_mean_reward
+
+                            # delete previous best model
+                            if (self.best_model_path is not None) and (os.path.exists(self.best_model_path)) and (
+                            self.delete_previous_model):
+                                os.remove(self.best_model_path)
+
+                            # save model
+                            self.best_model_path = os.path.join(self.save_path,
+                                                                f"best_model_difficulty_{current_difficulty}_winrate_{current_winrate}.zip")
+                            self.model.save(self.best_model_path)
+
+                            # reset patience counter
+                            self.patience_counter = 0
+
+                            if self.verbose > 0:
+                                print(
+                                    f"New best ep_rew_mean={self.best_mean_reward:.4f}, "
+                                    f"saved model to {self.best_model_path}"
+                                )
+
+                        # increase patience counter
+                        else:
+                            self.patience_counter += 1
 
     def _on_step(self):
+        super()._on_step()
+
+        # get state data from the envs
+        matchups_running = []
+        for env_idx in range(self.model.env.num_envs):
+            # get_attr safely fetches from worker processes
+            statename = self.model.env.get_attr('statename')[env_idx]
+            basename = extract_matchup(statename)
+            # # use the following line only for debugging
+            # self.logger.record(f"training_curriculum_CHECK/difficulty_{basename.split('_')[-2]}", basename.split('_')[-1])
+            matchups_running.append(re.sub(r"_\d+$", "", basename))
+
+        # record envs per matchup
+        counter = Counter(matchups_running)
+
+        # log curriculum level for each matchup
+        for matchup, value in self.curriculum.items():
+            current_level = value["levels"][value["current_lvl_idx"]]
+            self.logger.record(f"training_curriculum/difficulty_{matchup.split('_')[-1]}", int(current_level))
+
+            # log env distribution for each matchup
+            n_envs = counter[matchup] if matchup in counter else 0
+            self.logger.record(f"training_envs/{matchup.split('_')[-1]}", n_envs)
+
+        # reduce cooldown by number of episodes intercurred since last update
+        if self.locals.get("infos"):
+            for idx, info in enumerate(self.locals["infos"]):
+                if info.get("episode"):
+                    statename = self.model.env.get_attr("statename")[idx]
+                    statename = extract_matchup(statename)
+                    matchup = re.sub(r"_\d+$", "", statename)
+                    self.cooldown[matchup] = max(self.cooldown[matchup] - 1, 0)
+                    self.logger.record(f"training_matchups_cooldowns/cooldown_{matchup.split('_')[-1]}",
+                                       self.cooldown[matchup])
+
+        # log best mean reward of the last saved model
+        if self.best_mean_reward is not None:
+            self.logger.record("train/last_saved_mean_reward", self.best_mean_reward)
+
+        # log patience counter
+        self.logger.record("rollout/patience_counter", self.patience_counter)
+        # stop training if (number of rollouts since last save) >= patience
+        if self.patience_counter >= self.patience:
+            while True:
+                continue_training = input("Patience limit reached. Continue training? [y/n]")
+                if continue_training == "y":
+                    self.patience_counter = 0
+                    return True
+                elif continue_training == "n":
+                    return False
+                else:
+                    print("Type either 'y' or 'n'")
+
         return True
+
+    def raise_difficulty(self):
+        for matchup in self.curriculum.keys():
+            # get level from idx
+            self.curriculum[matchup]["current_lvl_idx"] += 1
+
+            next_lvl = self.curriculum[matchup]["levels"][self.curriculum[matchup]["current_lvl_idx"]]
+
+            assert next_lvl <= self.max_level, "Curriculum level exceeds maximum level"
+
+        self.reset_env_allocation()
+
+    def reallocate_envs(self):
+        # create winrates dict for all matchups
+        winrates_dict = {}
+        for name, value in self.winrates.items():
+            if name != "global":
+                # ensure winrates for all matchups are available
+                if value.get("winrate") is not None:
+                    winrates_dict[name] = value.get("winrate")
+                else:
+                    return
+
+        winrates_df = pd.DataFrame(winrates_dict, index=[0])
+        winrates_df = winrates_df.T.copy()
+        winrates_df.columns = ["winrate"]
+
+        # rescale winrates into weights
+        # matchup weight increases for lower winrates
+        winrates_df["weight"] = (1 - winrates_df["winrate"]).div((1 - winrates_df["winrate"]).sum(), axis=0)
+
+        # calculate envs to allocate based on weights
+        winrates_df["allocation"] = np.floor(winrates_df["weight"] * self.model.n_envs).astype(int)
+
+        # ensure each matchup has at least 1 dedicated env
+        winrates_df["allocation"] = winrates_df["allocation"].where(winrates_df["allocation"] != 0, 1)
+
+        # if there are envs remaining, allocate them to the matchup with the highest weight
+        remaining = self.model.n_envs - winrates_df["allocation"].sum()
+        if remaining > 0:
+            highest_idx = np.argmax(winrates_df["weight"])
+            winrates_df.loc[winrates_df.index[highest_idx], "allocation"] += remaining
+
+        # reallocate the envs
+        new_states = []
+        for matchup, row in winrates_df.iterrows():
+            # fetch the current level being used
+            current_diff_lvl = self.curriculum[matchup]["levels"][self.curriculum[matchup]["current_lvl_idx"]]
+            envs_to_allocate = row["allocation"].astype(np.int32)
+            if envs_to_allocate != 0:
+                for _ in range(envs_to_allocate):
+                    new_states.append(get_state(matchup, current_diff_lvl))
+
+        envs_to_update = [i for i in range(self.model.env.num_envs)]
+        self.locals["env"].update_env(new_states, envs_to_update)
+
+    def reset_env_allocation(self):
+        new_states = []
+        envs_to_update = [i for i in range(self.model.env.num_envs)]
+
+        for matchup, value in self.curriculum.items():
+            for _ in range(value["n_envs"]):
+                new_states.append(get_state(matchup, value["levels"][value["current_lvl_idx"]]))
+
+        self.locals["env"].update_env(new_states, envs_to_update)
+
+    def get_mean_reward(self):
+        try:
+            current_mean_reward = sum([ep_info["r"] for ep_info in self.model.ep_info_buffer]) / len(
+                [ep_info["r"] for ep_info in self.model.ep_info_buffer])
+            return current_mean_reward
+        except ZeroDivisionError:
+            return

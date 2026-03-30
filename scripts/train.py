@@ -22,7 +22,7 @@ from callbacks import TrainAndLoggingCallback, EarlyStoppingCallback
 from utils import make_env, linear_schedule
 
 from callbacks import TrainAndLoggingCallback, EarlyStoppingCallback
-
+from qol import *
 
 # ---------------------------------------------------------------------------
 # Directory paths (relative to the project root, one level above this file)
@@ -51,7 +51,7 @@ def main():
 
     # Total number of emulator frames (across all parallel envs) to train for.
     # 100M steps with 10 parallel envs ≈ 10M agent updates.
-    num_timesteps = 100_000_000
+    num_timesteps = 45_000_000
 
     # ---------------------------------------------------------------------------
     # Learning rate and clip range schedules
@@ -143,3 +143,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    play_done_sound(path="/home/emeralddawns/Documents/done_songs/LookWhatYouMadeMeDo.mp3")

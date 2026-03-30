@@ -680,7 +680,7 @@ class SFWrapper(Wrapper):
                     self.max_damage_dealt = damage_dealt
 
                 # default reward structure (used by Luca)
-                default_rewards = False
+                default_rewards = True
                 custom_reward = get_rewards(self.dense_coeff, self.aggresive_coeff, damage_taken, damage_dealt,
                                             defaults=default_rewards, max_damage_taken=self.max_damage_taken)
                 custom_reward_inverse = get_rewards(self.dense_coeff, self.aggresive_coeff, damage_dealt, damage_taken,
