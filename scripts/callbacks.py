@@ -149,16 +149,21 @@ class EarlyStoppingCallback(BaseCallback):
         patience=1000,
         min_improvement=0.1,
         delete_previous_best_model=False,
+        method = "either",
     ):
         super().__init__(verbose)
         self.save_path = save_path
         self.patience = patience
         self.best_mean_reward = 0
+        self.best_winrate = 0
         self.best_model_path = None
         self.delete_previous_best_model = delete_previous_best_model
-        self.patience_counter = 0   # Rollouts elapsed since the last improvement.
+        self.patience_counter = 0
         self.min_improvement = min_improvement
         self.current_mean_reward = None
+        self.current_winrate
+        self.method = method
+
 
     def _init_callback(self):
         """Create the checkpoint directory if it doesn't exist."""
@@ -172,23 +177,32 @@ class EarlyStoppingCallback(BaseCallback):
         Computes mean episode reward from SB3's internal buffer and decides
         whether to save a new checkpoint or increment the patience counter.
         """
+
         try:
             # ep_info_buffer contains dicts with key "r" (episode return)
             # for all recently completed episodes across all parallel envs.
-            self.current_mean_reward = (
-                sum(ep["r"] for ep in self.model.ep_info_buffer)
-                / len(self.model.ep_info_buffer)
-            )
+            self.current_winrate = self.logger.name_to_value.get("rollout/ep_winrate")
+            self.current_mean_reward = sum([ep_info["r"] for ep_info in self.model.ep_info_buffer])/len([ep_info["r"] for ep_info in self.model.ep_info_buffer])
         except ZeroDivisionError:
-            pass  # Buffer empty at the very start of training; skip.
+            pass # Buffer empty at the very start of training; skip.
 
         # Don't start tracking until win-rate is available (enough episodes done).
-        if self.logger.name_to_value.get("rollout/ep_winrate") is None:
+        if self.current_winrate is None:
             return
 
+        reset_patience = False
         if self.current_mean_reward >= self.best_mean_reward + self.min_improvement:
-            # New best model found.
             self.best_mean_reward = self.current_mean_reward
+            if self.method in ["mean_reward", "either"]:
+                reset_patience = True
+
+        if self.current_winrate >= self.best_winrate + self.min_improvement:
+            self.best_winrate = self.current_winrate
+            if self.method in ["winrate", "either"]:
+                reset_patience = True
+
+        if reset_patience:
+            # New best model found.
             self.patience_counter = 0  # Reset the patience clock.
 
             # Optionally remove the old best checkpoint to save disk space.
@@ -197,11 +211,10 @@ class EarlyStoppingCallback(BaseCallback):
                     os.remove(self.best_model_path)
 
             # Build a descriptive filename embedding current metrics.
-            current_winrate  = self.logger.name_to_value.get("rollout/ep_winrate")
             num_episodes     = self.logger.name_to_value.get("rollout/episode_count")
             self.best_model_path = os.path.join(
                 self.save_path,
-                f"best_model_winrate_{current_winrate}_episode_{num_episodes}.zip",
+                f"best_model_winrate_{self.current_winrate}_episode_{num_episodes}.zip",
             )
             self.model.save(self.best_model_path)
 

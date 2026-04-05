@@ -26,6 +26,7 @@ from stable_baselines3.common.vec_env import SubprocVecEnv
 from callbacks import OptunaTrainAndLoggingCallback
 
 OPT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "opt")
+os.makedirs(OPT_DIR, exist_ok=True)
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
 
 # Save-state used for all Optuna trials (fixed for comparability).

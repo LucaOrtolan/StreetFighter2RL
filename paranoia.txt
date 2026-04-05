@@ -1,0 +1,19 @@
+From
+
+Policy: ActorCriticCnnPolicy (standard SB3 CNN policy — no custom net_arch was set, so it used the defaults)
+Observation space: RGB image, shape (3, 100, 128), uint8 — that's 3 channels × 100 height × 128 width
+Action space: MultiBinary(15) — 15 binary buttons
+PPO hyperparameters used:
+
+n_steps: 512
+batch_size: 1024
+n_epochs: 4
+gamma: 0.94
+gae_lambda: 0.95
+learning_rate: linear schedule from 5e-5 → 2.5e-6
+clip_range: linear schedule from 0.075 → 0.025
+ent_coef: 0.0
+vf_coef: 0.5
+max_grad_norm: 0.5
+
+Since policy_kwargs was empty {}, it used SB3's default CNN architecture for CnnPolicy, which is NatureCNN — three conv layers (32, 64, 64 filters) followed by a 512-unit linear layer, then separate actor and critic heads with no hidden layers between them.
