@@ -10,6 +10,9 @@ cd /path/to/project2
 
 echo "Both runs complete!"
 
+same number of envs for optimize and training
+same number of envs for training and re-training
+remove sagat
 
 https://docs.conda.io/projects/conda/en/4.6.0/user-guide/tasks/manage-environments.html
 

@@ -161,7 +161,7 @@ class EarlyStoppingCallback(BaseCallback):
         self.patience_counter = 0
         self.min_improvement = min_improvement
         self.current_mean_reward = None
-        self.current_winrate
+        self.current_winrate = None
         self.method = method
 
 

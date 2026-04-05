@@ -48,10 +48,11 @@ def main():
     transform_action = False # Use raw MultiBinary action space.
     num_stack = 12 # number of frames to stack
     num_step_frames = 8 # number of emulator frames per step
+    rewards_scheme = "default"
 
     # Total number of emulator frames (across all parallel envs) to train for.
     # 100M steps with 10 parallel envs ≈ 10M agent updates.
-    num_timesteps = 45_000_000
+    num_timesteps = 40_000_000
 
     # ---------------------------------------------------------------------------
     # Learning rate and clip range schedules
@@ -107,7 +108,28 @@ def main():
     for matchup, n_envs in envs_per_matchup.items():
         for _ in range(n_envs):
             state = STATE_DIR + f"/{matchup}.state"
-            sub_env = make_env(game, state, side, reset_type, rendering, enable_combo, null_combo, transform_action, num_stack, num_step_frames)
+
+            # POI: wth was happening here before keyword arguments?
+            sub_env = make_env(game, state, side, reset_type, rendering, enable_combo=enable_combo, null_combo=null_combo,
+                               transform_action=transform_action, num_stack=num_stack, num_step_frames=num_step_frames,
+                               rewards_scheme=rewards_scheme)
+            # print(
+            #     f"make_env called with:\n"
+            #     f"  game={game}\n"
+            #     f"  state={state}\n"
+            #     f"  side={side}\n"
+            #     f"  reset_type={reset_type}\n"
+            #     f"  rendering={rendering}\n"
+            #     f"  enable_combo={enable_combo}\n"
+            #     f"  null_combo={null_combo}\n"
+            #     f"  transform_action={transform_action}\n"
+            #     f"  num_stack={num_stack}\n"
+            #     f"  num_step_frames={num_step_frames}\n"
+            # )
+            # # original
+            # sub_env = make_env(game, state, side, reset_type, rendering, enable_combo, null_combo, transform_action,
+            #                    num_stack, num_step_frames)
+
             env_list.append(sub_env)
 
     # Launch all worker subprocesses; each runs its own copy of the environment.

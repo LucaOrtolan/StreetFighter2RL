@@ -98,8 +98,10 @@ DIRECTIONS_BUTTONS = [
     [],                              # No direction (neutral)
     ['UP'], ['DOWN'],
     ['LEFT'], ['RIGHT'],
-    ['UP', 'LEFT'], ['UP', 'RIGHT'],
-    ['DOWN', 'LEFT'], ['DOWN', 'RIGHT'],
+    ['UP', 'LEFT'],
+    ['UP', 'RIGHT'],
+    ['DOWN', 'LEFT'],  # crouching block
+    ['DOWN', 'RIGHT'], # crouching block
 ]
 
 # All possible attack button presses (one at a time).

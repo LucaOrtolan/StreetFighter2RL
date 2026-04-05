@@ -1,19 +1,86 @@
-From
+Best trial:
+ FrozenTrial(
+    number=21,
+    state=<TrialState.COMPLETE: 1>,
+    values=[3.6748630000000007],
+    datetime_start=datetime.datetime(2026, 3, 9, 10, 9, 51, 624055),
+    datetime_complete=datetime.datetime(2026, 3, 9, 10, 14, 36, 324894),
+    params={
+        'net_arch': 'medium',
+        'n_steps_multiplier': 3,
+        'batch_size': 1024,
+        'gamma': 0.927849391768446,
+        'learning_rate': 0.00016198279457292706,
+        'clip_range': 0.3618014909455298,
+        'gae_lambda': 0.9138746123342616,
+        'n_epochs': 8,
+        'ent_coef': 0.0017305441910259983,
+        'vf_coef': 0.4694902319037935,
+        'max_grad_norm': 0.8269810235729104,
+        'ortho_init': True,
+        'aggresive_coeff': 3.8760284092034802,
+        'dense_coeff': 1.8738445596121123,
+        'num_stack': 16
+        },
+    user_attrs={},
+    system_attrs={},
+    intermediate_values={},
+    distributions={
+        'net_arch': CategoricalDistribution(choices=('small', 'medium', 'large', 'asymmetric')),
+        'n_steps_multiplier': IntDistribution(high=8, log=False, low=1, step=1),
+        'batch_size': CategoricalDistribution(choices=(64, 128, 256, 512, 1024)),
+        'gamma': FloatDistribution(high=0.999, log=True, low=0.9, step=None),
+        'learning_rate': FloatDistribution(high=0.0003, log=True, low=5e-06, step=None),
+        'clip_range': FloatDistribution(high=0.4, log=False, low=0.1, step=None),
+        'gae_lambda': FloatDistribution(high=0.99, log=False, low=0.8, step=None),
+        'n_epochs': IntDistribution(high=10, log=False, low=3, step=1),
+        'ent_coef': FloatDistribution(high=0.01, log=True, low=0.0001, step=None),
+        'vf_coef': FloatDistribution(high=0.7, log=False, low=0.3, step=None),
+        'max_grad_norm': FloatDistribution(high=1.0, log=False, low=0.3, step=None),
+        'ortho_init': CategoricalDistribution(choices=(True, False)), 'aggresive_coeff': FloatDistribution(high=5.0, log=False, low=1.0, step=None), 'dense_coeff': FloatDistribution(high=2.0, log=False, low=0.5, step=None), 'num_stack': CategoricalDistribution(choices=(8, 12, 16))}, trial_id=21, value=None)
 
-Policy: ActorCriticCnnPolicy (standard SB3 CNN policy — no custom net_arch was set, so it used the defaults)
-Observation space: RGB image, shape (3, 100, 128), uint8 — that's 3 channels × 100 height × 128 width
-Action space: MultiBinary(15) — 15 binary buttons
-PPO hyperparameters used:
 
-n_steps: 512
-batch_size: 1024
-n_epochs: 4
-gamma: 0.94
-gae_lambda: 0.95
-learning_rate: linear schedule from 5e-5 → 2.5e-6
-clip_range: linear schedule from 0.075 → 0.025
-ent_coef: 0.0
-vf_coef: 0.5
-max_grad_norm: 0.5
-
-Since policy_kwargs was empty {}, it used SB3's default CNN architecture for CnnPolicy, which is NatureCNN — three conv layers (32, 64, 64 filters) followed by a 512-unit linear layer, then separate actor and critic heads with no hidden layers between them.
+Best trial: FrozenTrial(
+    number=369,
+    state=<TrialState.COMPLETE: 1>,
+    values=[5.0619700000000005],
+    datetime_start=datetime.datetime(2026, 3, 13, 13, 50, 8, 682176),
+    datetime_complete=datetime.datetime(2026, 3, 13, 14, 2, 51, 658509),
+    params={
+        'net_arch': 'asymmetric',
+        'n_steps_multiplier': 3,
+        'batch_size': 64,
+        'gamma': 0.9610406777669569,
+        'learning_rate': 3.8953746414870366e-05,
+        'clip_range': 0.3758633583410326,
+        'gae_lambda': 0.8333115505020013,
+        'n_epochs': 5,
+        'ent_coef': 0.001472203929159015,
+        'vf_coef': 0.5257043187472997,
+        'max_grad_norm': 0.5640222511059213,
+        'ortho_init': False,
+        'aggresive_coeff': 4.7495052043114825,
+        'dense_coeff': 1.9953888225456227,
+        'num_stack': 16},
+    user_attrs={},
+    system_attrs={},
+    intermediate_values={},
+    distributions={
+        'net_arch':
+            CategoricalDistribution(
+                choices=
+                    ('small', 'medium', 'large', 'asymmetric')),
+                    'n_steps_multiplier': IntDistribution(high=8, log=False, low=1, step=1),
+                    'batch_size': CategoricalDistribution(choices=(64, 128, 256, 512, 1024)),
+                    'gamma': FloatDistribution(high=0.999, log=True, low=0.9, step=None),
+                    'learning_rate': FloatDistribution(high=0.0003, log=True, low=5e-06, step=None),
+                    'clip_range': FloatDistribution(high=0.4, log=False, low=0.1, step=None),
+                    'gae_lambda': FloatDistribution(high=0.99, log=False, low=0.8, step=None),
+                    'n_epochs': IntDistribution(high=10, log=False, low=3, step=1),
+                    'ent_coef': FloatDistribution(high=0.01, log=True, low=0.0001, step=None),
+                    'vf_coef': FloatDistribution(high=0.7, log=False, low=0.3, step=None),
+                    'max_grad_norm': FloatDistribution(high=1.0, log=False, low=0.3, step=None),
+                    'ortho_init': CategoricalDistribution(choices=(True, False)),
+                    'aggresive_coeff': FloatDistribution(high=5.0, log=False, low=1.0, step=None),
+                    'dense_coeff': FloatDistribution(high=2.0, log=False, low=0.5, step=None),
+                    'num_stack': CategoricalDistribution(choices=(8, 12, 16))}, trial_id=369, value=None)

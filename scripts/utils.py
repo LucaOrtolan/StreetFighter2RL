@@ -12,7 +12,25 @@ import os
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
 STATE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data/states")
 
-def make_env(game, state, side, reset_type, rendering, init_level=1, state_dir=None, verbose=False, enable_combo=True, null_combo=False, transform_action=False, num_stack=12, num_step_frames=8):
+def make_env(game, state, side, reset_type, rendering, init_level=1, state_dir=None, verbose=False, enable_combo=True, null_combo=False, transform_action=False, num_stack=12, num_step_frames=8, rewards_scheme="default"):
+    # print(
+    #     f"make_env received:\n"
+    #     f"  game={game}\n"
+    #     f"  state={state}\n"
+    #     f"  side={side}\n"
+    #     f"  reset_type={reset_type}\n"
+    #     f"  rendering={rendering}\n"
+    #     f"  init_level={init_level}\n"
+    #     f"  state_dir={state_dir}\n"
+    #     f"  verbose={verbose}\n"
+    #     f"  enable_combo={enable_combo}\n"
+    #     f"  null_combo={null_combo}\n"
+    #     f"  transform_action={transform_action}\n"
+    #     f"  num_stack={num_stack}\n"
+    #     f"  num_step_frames={num_step_frames}\n"
+    #     f"  rewards_scheme={rewards_scheme}\n"
+    # )
+
     def _init():
         env = retro.make(
             game=game, 
@@ -21,7 +39,7 @@ def make_env(game, state, side, reset_type, rendering, init_level=1, state_dir=N
             render_mode = "human" if rendering else False,
             obs_type=retro.Observations.IMAGE,
         )
-        env = SFWrapper(env, side=side, rendering=rendering, reset_type=reset_type, init_level=init_level, state_dir=state_dir, verbose=verbose, enable_combo=enable_combo, null_combo=null_combo, transform_action=transform_action, num_stack=num_stack, num_step_frames=num_step_frames)
+        env = SFWrapper(env, side=side, rendering=rendering, reset_type=reset_type, init_level=init_level, state_dir=state_dir, verbose=verbose, enable_combo=enable_combo, null_combo=null_combo, transform_action=transform_action, num_stack=num_stack, num_step_frames=num_step_frames, rewards_scheme=rewards_scheme)
         env = Monitor(env, LOG_DIR, info_keywords=("matches_won", "enemy_matches_won", "health", "enemy_health"))
         return env
     return _init

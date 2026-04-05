@@ -33,7 +33,7 @@ from stable_baselines3.common.monitor import Monitor
 from typing import Optional, Tuple, Union
 from stable_baselines3.common.type_aliases import GymObs, GymStepReturn
 import cv2
-from rewards import get_rewards
+from rewards import get_midround_rewards
 
 class SFWrapper(Wrapper):
     """
@@ -83,7 +83,7 @@ class SFWrapper(Wrapper):
         If True, use a MultiDiscrete action space (single integer per player)
         instead of MultiBinary; requires a custom `action_transformer`.
     """
-    def __init__(self, env, side, reset_type="round", init_level=1, rendering=False, num_stack=12, num_step_frames=8, state_dir=None, verbose=False, enable_combo=True, null_combo=False, transform_action=False, aggresive_coeff=3.0, dense_coeff=1.0):
+    def __init__(self, env, side, reset_type="round", init_level=1, rendering=False, num_stack=12, num_step_frames=8, state_dir=None, verbose=False, enable_combo=True, null_combo=False, transform_action=False, aggresive_coeff=3.0, dense_coeff=1.0, rewards_scheme='default'):
         super(SFWrapper, self).__init__(env)
 
         # Wrap the base env in SB3's FrameStackObservation so we receive
@@ -113,6 +113,12 @@ class SFWrapper(Wrapper):
 
         # Seconds to sleep between rendered frames (controls playback speed).
         self.frame_rate = 0.01
+
+        # EXP: Default rewards
+        # "default" reward structure (used by Luca)
+        self.rewards_scheme = rewards_scheme
+        self.win_modifier = 1
+        self.loss_modifier = 1
 
         # ---------------------------------------------------------------------------
         # Observation space
@@ -597,6 +603,7 @@ class SFWrapper(Wrapper):
                     self.save_state = True
                     self.level += 1
 
+        # HERE: Rewards Shaping
         else:
             # --- Active gameplay ---
             self.during_transition = False  # We are now inside a live round.
@@ -613,13 +620,10 @@ class SFWrapper(Wrapper):
 
             elif agent_hp < 0 or (timesup and agent_hp < enemy_hp):
                 # Agent lost the round.
-                # Reward decreases as remaining enemy HP increases (punishes giving
-                # up lots of HP before dying).
-                custom_reward = (
-                    -math.pow(self.full_hp, (agent_hp + 1) / (self.full_hp + 1))
-                    * self.aggresive_coeff
-                )
-                custom_reward_inverse = math.pow(self.full_hp, (enemy_hp + 1) / (self.full_hp + 1))
+                # Reward decreases as remaining enemy HP increases (punishes giving up lots of HP before dying).
+                custom_reward = self.loss_modifier * (
+                            -math.pow(self.full_hp, (agent_hp + 1) / (self.full_hp + 1)) * self.aggresive_coeff)
+                custom_reward_inverse = self.loss_modifier * (math.pow(self.full_hp, (enemy_hp + 1) / (self.full_hp + 1)))
 
                 if self.reset_type == "round":
                     custom_done = True
@@ -632,13 +636,10 @@ class SFWrapper(Wrapper):
 
             elif enemy_hp < 0 or (timesup and agent_hp > enemy_hp):
                 # Agent won the round.
-                # Reward scales with the agent's remaining HP (incentivises
-                # winning without taking damage).
-                custom_reward = (
-                    math.pow(self.full_hp, (agent_hp + 1) / (self.full_hp + 1))
-                    * self.aggresive_coeff
-                )
-                custom_reward_inverse = -math.pow(self.full_hp, (agent_hp + 1) / (self.full_hp + 1))
+                # Reward scales with the agent's remaining HP (incentivises winning without taking damage).
+                custom_reward = (self.win_modifier *
+                                 (math.pow(self.full_hp, (agent_hp + 1) / (self.full_hp + 1)) * self.aggresive_coeff))
+                custom_reward_inverse = self.win_modifier * (-math.pow(self.full_hp, (agent_hp + 1) / (self.full_hp + 1)))
 
                 if self.reset_type == "reset":
                     custom_done = True
@@ -679,12 +680,10 @@ class SFWrapper(Wrapper):
                 if self.max_damage_dealt < damage_dealt:
                     self.max_damage_dealt = damage_dealt
 
-                # default reward structure (used by Luca)
-                default_rewards = True
-                custom_reward = get_rewards(self.dense_coeff, self.aggresive_coeff, damage_taken, damage_dealt,
-                                            defaults=default_rewards, max_damage_taken=self.max_damage_taken)
-                custom_reward_inverse = get_rewards(self.dense_coeff, self.aggresive_coeff, damage_dealt, damage_taken,
-                                                    defaults=default_rewards, max_damage_taken=self.max_damage_dealt)
+                custom_reward = get_midround_rewards(self.dense_coeff, self.aggresive_coeff, damage_taken, damage_dealt,
+                                            rewards_scheme=self.rewards_scheme, max_damage_taken=self.max_damage_taken)
+                custom_reward_inverse = get_midround_rewards(self.dense_coeff, self.aggresive_coeff, damage_dealt, damage_taken,
+                                                    rewards_scheme=self.rewards_scheme, max_damage_taken=self.max_damage_dealt)
 
                 self.prev_agent_hp = agent_hp
                 self.prev_enemy_hp = enemy_hp

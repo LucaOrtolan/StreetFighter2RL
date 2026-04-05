@@ -30,16 +30,16 @@ os.makedirs(OPT_DIR, exist_ok=True)
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
 
 # Save-state used for all Optuna trials (fixed for comparability).
-state = "/home/emeralddawns/Documents/StreetFighter2RL/data/states/ryu_vs_balrog_1.state"
+state = "/home/emeralddawns/Documents/StreetFighter2RL/data/states/ryu_vs_dhalsim_4.state"
 
-# Training budget per trial (intentionally short to allow many trials).
-n_steps = 100_000
+# Training time-step budget per trial (intentionally short to allow many trials).
+n_steps = 300_000
 
 # Number of evaluation episodes after training to compute the objective.
 eval_episodes = 10
 
 # Total number of Optuna trials to run.
-n_trials = 100
+n_trials = 500
 
 # EXP: just verbose. a reminder that it is here
 def make_env(game, state, side="left", reset_type="match", rendering=False, init_level=1, state_dir=None, verbose=True, enable_combo=True, null_combo=False, transform_action=False, aggresive_coeff=3.0, dense_coeff=1.0, num_stack=12, num_step_frames=8):
