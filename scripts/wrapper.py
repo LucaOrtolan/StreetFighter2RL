@@ -34,6 +34,7 @@ from typing import Optional, Tuple, Union
 from stable_baselines3.common.type_aliases import GymObs, GymStepReturn
 import cv2
 from rewards import get_midround_rewards
+from collections import deque
 
 class SFWrapper(Wrapper):
     """
@@ -115,10 +116,18 @@ class SFWrapper(Wrapper):
         self.frame_rate = 0.01
 
         # EXP: Default rewards
-        # "default" reward structure (used by Luca)
-        self.rewards_scheme = rewards_scheme
-        self.win_modifier = 1
-        self.loss_modifier = 1
+        # "default" reward structure is used by Luca
+        self.rewards_scheme = rewards_scheme    # default = "default"
+        self.win_modifier = 1       # default = 1
+        self.loss_modifier = 1      # default = 1
+        self.action_cost = 1        # default = 0
+        self.time_modifier = 0      # default = 0
+        self.mixitup_modifier = 0   # default = 0
+        self.tie_penalty = 1        # default = 1
+
+        # Move variety tracking
+        self.move_history = deque(maxlen=5)
+        self.repeat_patience = 3
 
         # ---------------------------------------------------------------------------
         # Observation space
@@ -146,6 +155,7 @@ class SFWrapper(Wrapper):
         if transform_action:
             # Discrete mode: agent outputs a single integer per player.
             # The integer is split into direction + attack (+ optional combo).
+            #POI: This is why it is ok if null_combo was accidentally set to true
             if enable_combo or null_combo:
                 self.n_actions = MultiDiscrete([len(DIRECTIONS_BUTTONS) + len(ATTACKS_BUTTONS) + len(SF_COMBOS)])
             else: 
@@ -301,9 +311,8 @@ class SFWrapper(Wrapper):
         self.extra_round = False  # True if a draw forced an extra deciding round.
         self.total_timesteps = 0
 
-        # EXP: damage taken tuning
-        # self.max_damage_taken = 0.0
-        # self.max_damage_dealt = 0.0
+        # EXP: reward shaping
+        self.move_history.clear()
 
         return self._get_obs(obs), info
 
@@ -404,6 +413,33 @@ class SFWrapper(Wrapper):
             info["round"] = "start" if self.round_status == START_STATUS else "end"
             assert self.match_status == START_STATUS, info
 
+    def _get_offensive_action(self, action):
+        """
+        Returns an identifier for the offensive action taken,
+        or None if the action was purely defensive/movement.
+        """
+        # Check for combo first
+        if self.enable_combo:
+            combo_id = int(4 * action[-3] + 2 * action[-2] + action[-1])
+            if combo_id < len(SF_COMBOS):
+                return f"combo_{combo_id}"
+
+        # Attack button names (flattened from ATTACKS_BUTTONS, excluding empty)
+        attack_button_names = ['B', 'A', 'C', 'Y', 'X', 'Z']
+
+        # Check which attack buttons are pressed
+        buttons_pressed = [BUTTONS[i] for i, b in enumerate(action[:12]) if b == 1]
+        attacks_pressed = tuple(sorted([b for b in buttons_pressed if b in attack_button_names]))
+
+        if attacks_pressed:
+            # Include direction for context — jab vs crouching jab are different moves
+            directions = ['UP', 'DOWN', 'LEFT', 'RIGHT']
+            dirs_pressed = tuple(sorted([b for b in buttons_pressed if b in directions]))
+            return (dirs_pressed, attacks_pressed)
+
+        return None  # purely movement or no input
+
+
     def step(self, action):
         """
         Advance the environment by one agent step (= `num_step_frames` emulator frames).
@@ -447,11 +483,6 @@ class SFWrapper(Wrapper):
         truncated  : bool        – True if the episode hit a time limit
         info       : dict        – game RAM state + episode metadata
         """
-
-        # info = {}
-        # info["damage_taken"] = 0
-        # info["damage_dealt"] = 0
-        # info["damage_reward"] = 0.0
 
         # Apply optional discrete-to-binary action transformation.
         if self.action_transformer is not None:
@@ -603,15 +634,15 @@ class SFWrapper(Wrapper):
                     self.save_state = True
                     self.level += 1
 
-        # HERE: Rewards Shaping
+        #HERE: Rewards Shaping
         else:
             # --- Active gameplay ---
             self.during_transition = False  # We are now inside a live round.
 
             if (agent_hp < 0 and enemy_hp < 0) or (timesup and agent_hp == enemy_hp):
                 # Double KO or time-out draw.
-                custom_reward = 1
-                custom_reward_inverse = 1
+                custom_reward = self.tie_penalty
+                custom_reward_inverse = self.tie_penalty
                 if self.reset_type == "round":
                     custom_done = True
                 else:
@@ -620,10 +651,16 @@ class SFWrapper(Wrapper):
 
             elif agent_hp < 0 or (timesup and agent_hp < enemy_hp):
                 # Agent lost the round.
+
+                #EXP RE: Time reward: Reward agent for taking up the human's time and not dying fast
+                time_factor = self.total_timesteps * self.time_modifier
+
                 # Reward decreases as remaining enemy HP increases (punishes giving up lots of HP before dying).
-                custom_reward = self.loss_modifier * (
+                custom_reward = (self.loss_modifier * (
                             -math.pow(self.full_hp, (agent_hp + 1) / (self.full_hp + 1)) * self.aggresive_coeff)
-                custom_reward_inverse = self.loss_modifier * (math.pow(self.full_hp, (enemy_hp + 1) / (self.full_hp + 1)))
+                                 + time_factor)
+                custom_reward_inverse = (self.loss_modifier * (math.pow(self.full_hp, (enemy_hp + 1) / (self.full_hp + 1)))
+                                         + time_factor)
 
                 if self.reset_type == "round":
                     custom_done = True
@@ -636,10 +673,16 @@ class SFWrapper(Wrapper):
 
             elif enemy_hp < 0 or (timesup and agent_hp > enemy_hp):
                 # Agent won the round.
+
+                #EXP RE: Time penalty: Encourage agent to defeat human quickly
+                time_factor = self.total_timesteps * self.time_modifier
+
                 # Reward scales with the agent's remaining HP (incentivises winning without taking damage).
-                custom_reward = (self.win_modifier *
+                custom_reward = ((self.win_modifier *
                                  (math.pow(self.full_hp, (agent_hp + 1) / (self.full_hp + 1)) * self.aggresive_coeff))
-                custom_reward_inverse = self.win_modifier * (-math.pow(self.full_hp, (agent_hp + 1) / (self.full_hp + 1)))
+                                 - time_factor)
+                custom_reward_inverse = (self.win_modifier * (-math.pow(self.full_hp, (agent_hp + 1) / (self.full_hp + 1)))
+                                         - time_factor)
 
                 if self.reset_type == "reset":
                     custom_done = True
@@ -657,22 +700,33 @@ class SFWrapper(Wrapper):
 
             else:
                 # --- Mid-round: dense reward based on HP delta ---
+
+                # Track offensive move variety
+                offensive_action = self._get_offensive_action(action)
+                mixitup_penalty = 0.0
+                if offensive_action is not None:
+                    self.move_history.append(offensive_action)
+
+                    if len(self.move_history) >= self.repeat_patience:
+                        # Count how many of the last N moves were the same
+                        recent = list(self.move_history)
+
+                        # get id of last move
+                        last_move = recent[-1]
+
+                        # how many times has the agent done this recently?
+                        repeat_count = sum(1 for m in recent if m == last_move)
+
+                        # Only penalize if repeating excessively
+                        if repeat_count >= self.repeat_patience:
+                            # no penalty for the ones done before patience reached
+                            # (how many times has it repeated a move *after* patience was reached?)
+                            mixitup_penalty = self.mixitup_modifier * (repeat_count - (self.repeat_patience - 1))
+
                 # Reward = aggresive_coeff × damage dealt − damage received.
                 # prev_*_hp is updated here so next step's delta is relative to now.
                 damage_taken = max(0, self.prev_agent_hp - agent_hp)
                 damage_dealt = max(0, self.prev_enemy_hp - enemy_hp)
-
-
-                # HERE: Experiment with mid-round rewards here
-                # custom_reward = self.dense_coeff * (
-                #     self.aggresive_coeff * damage_dealt
-                #     - damage_taken
-                # )
-                #
-                # custom_reward_inverse = self.dense_coeff * (
-                #     self.aggresive_coeff * damage_taken
-                #     - damage_dealt
-                # )
 
                 # EXP: damage taken tuning
                 if self.max_damage_taken < damage_taken:
@@ -680,10 +734,12 @@ class SFWrapper(Wrapper):
                 if self.max_damage_dealt < damage_dealt:
                     self.max_damage_dealt = damage_dealt
 
-                custom_reward = get_midround_rewards(self.dense_coeff, self.aggresive_coeff, damage_taken, damage_dealt,
+                custom_reward = (get_midround_rewards(self.dense_coeff, self.aggresive_coeff, damage_taken, damage_dealt,
                                             rewards_scheme=self.rewards_scheme, max_damage_taken=self.max_damage_taken)
-                custom_reward_inverse = get_midround_rewards(self.dense_coeff, self.aggresive_coeff, damage_dealt, damage_taken,
+                                 - self.action_cost - mixitup_penalty)
+                custom_reward_inverse = (get_midround_rewards(self.dense_coeff, self.aggresive_coeff, damage_dealt, damage_taken,
                                                     rewards_scheme=self.rewards_scheme, max_damage_taken=self.max_damage_dealt)
+                                         - self.action_cost - mixitup_penalty)
 
                 self.prev_agent_hp = agent_hp
                 self.prev_enemy_hp = enemy_hp
@@ -703,16 +759,17 @@ class SFWrapper(Wrapper):
         self.last_info = info
 
         # Scale rewards by 0.001 to keep values in a numerically stable range.
+        stabilizer = 0.001
         if self.side == "left":
-            return self._get_obs(obs), 0.001 * custom_reward, custom_done, truncated, info
+            return self._get_obs(obs), stabilizer * custom_reward, custom_done, truncated, info
         elif self.side == "right":
-            return self._get_obs(obs), 0.001 * custom_reward_inverse, custom_done, truncated, info
+            return self._get_obs(obs), stabilizer * custom_reward_inverse, custom_done, truncated, info
         else:
             # Two-player mode: return separate rewards for each agent.
             return (
                 self._get_obs,
-                0.001 * custom_reward,
-                0.001 * custom_reward_inverse,
+                stabilizer * custom_reward,
+                stabilizer * custom_reward_inverse,
                 custom_done,
                 truncated,
                 info,

@@ -18,7 +18,6 @@ from stable_baselines3.common.vec_env import SubprocVecEnv
 from const import *
 from stable_baselines3 import PPO
 import os
-from callbacks import TrainAndLoggingCallback, EarlyStoppingCallback
 from utils import make_env, linear_schedule
 
 from callbacks import TrainAndLoggingCallback, EarlyStoppingCallback
@@ -52,7 +51,7 @@ def main():
 
     # Total number of emulator frames (across all parallel envs) to train for.
     # 100M steps with 10 parallel envs ≈ 10M agent updates.
-    num_timesteps = 40_000_000
+    num_timesteps = 50_000_000
 
     # ---------------------------------------------------------------------------
     # Learning rate and clip range schedules
@@ -75,18 +74,18 @@ def main():
     # ---------------------------------------------------------------------------
 
     # lvl = 1
-    envs_ind = 6
+    envs_ind = 5
 
     oppos_and_lvls = {
                 # "balrog": 1,
                 #  "bison": 1,
                 #  "blanka": 1,
-                #  "chunli": 1,
+                 "chunli": 8,
                 #  "dhalsim": 1,
-                #  "guile": 1,
+                 "guile": 8,
                 #  "honda": 1,
-                 "ken": 1,
-                 "ryu": 1,
+                 "ken": 8,
+                 "ryu": 8,
                  # "sagat": 1,
                  # "vega": 1,
                  # "zangief": 1,

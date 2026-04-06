@@ -54,9 +54,28 @@ def main():
         char_curr = curriculum[matchup]
         for _ in range(char_curr["n_envs"]):
             state_to_load = get_state(matchup, char_curr["levels"][0])
-            sub_env = make_env(game, state_to_load, side, reset_type, rendering, enable_combo, null_combo, transform_action, num_stack, num_step_frames)
+
+            sub_env = make_env(game, state_to_load, side, reset_type, rendering, enable_combo=enable_combo, null_combo=null_combo,
+                               transform_action=transform_action, num_stack=num_stack, num_step_frames=num_step_frames)
+
+            # print(
+            #     f"curriculum_learning.py make_env called with:\n"
+            #     f"  game={game}\n"
+            #     f"  state_to_load={state_to_load}\n"
+            #     f"  side={side}\n"
+            #     f"  reset_type={reset_type}\n"
+            #     f"  rendering={rendering}\n"
+            #     f"  enable_combo={enable_combo}\n"
+            #     f"  null_combo={null_combo}\n"
+            #     f"  transform_action={transform_action}\n"
+            #     f"  num_stack={num_stack}\n"
+            #     f"  num_step_frames={num_step_frames}\n"
+            # )
+            # # original
+            # sub_env = make_env(game, state_to_load, side, reset_type, rendering, enable_combo, null_combo, transform_action, num_stack, num_step_frames)
+
             env_list.append(sub_env)
-    
+
     env = SubprocVecEnvCL(env_list)
 
     model = PPO(

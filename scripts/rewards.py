@@ -14,6 +14,10 @@ def get_midround_rewards(dense_coeff : float, aggresive_coeff: float, damage_tak
     if rewards_scheme == "default":
         custom_reward = dense_coeff * (aggresive_coeff * damage_dealt - damage_taken)
 
+        # Originals written as
+        # custom_reward = self.dense_coeff * (self.aggresive_coeff * damage_dealt - damage_taken)
+        # custom_reward_inverse = self.dense_coeff * (self.aggresive_coeff * damage_taken - damage_dealt)
+
     elif rewards_scheme == "sigmoid":
         eps = 10 ** -6
         # tuned_damage_taken = sigmoid_01(max_damage_taken / (damage_taken + eps), k, m) * damage_taken
