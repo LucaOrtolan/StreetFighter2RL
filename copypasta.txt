@@ -28,10 +28,9 @@ tensorboard --logdir=logs/exp1
 "Kickstarting Deep Reinforcement Learning" (Schmitt et al., 2018) — using one model to guide another
 Threat/value decomposition — search "reward decomposition reinforcement learning" (Russell & Zimdars, 2003)
 
-python fight.py \
-  --model1 /home/emeralddawns/Documents/GitHub/ReinforcementFighters/sálvame/Luca_lvl8/best_model_difficulty_8_winrate_0.9.zip \
-  --model2 /home/emeralddawns/Documents/GitHub/ReinforcementFighters/sálvame/something_is_off/tb_says_p846/final_model_difficulty_8.zip \
-  --state  data/states/ryu_vs_ryu_8.state \
+python3 fight.py \
+  --model1 /home/emeralddawns/Documents/GitHub/ReinforcementFighters/sálvame/luca_full_curriculum/best_model_difficulty_8_winrate_0.97.zip --name1 full_curr_p97\
+  --model2 /home/emeralddawns/Documents/GitHub/ReinforcementFighters/sálvame/something_is_off/tb_says_p846/final_model_difficulty_8.zip --name2 rs_p846\
   --episodes 20 \
   --render \
   --verbose
