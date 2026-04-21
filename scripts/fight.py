@@ -31,7 +31,6 @@ import numpy as np
 import stable_retro as retro
 from stable_baselines3 import PPO
 
-# fight.py lives inside scripts/, so the project root is one level up.
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPTS_DIR)
 sys.path.insert(0, SCRIPTS_DIR)
