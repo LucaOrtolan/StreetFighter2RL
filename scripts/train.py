@@ -51,7 +51,7 @@ def main():
 
     # Total number of emulator frames (across all parallel envs) to train for.
     # 100M steps with 10 parallel envs ≈ 10M agent updates.
-    num_timesteps = 50_000_000
+    num_timesteps = 40_000_000
 
     # ---------------------------------------------------------------------------
     # Learning rate and clip range schedules
@@ -63,7 +63,7 @@ def main():
     clip_range_schedule = linear_schedule(0.075, 0.025)
 
     winrate_buffer_size = 1000 # sample size for computing winrate rolling average
-    patience = 2000 # n° of rollouts to wait for improvements 
+    patience = 2000 # n° of rollouts to wait for improvements
     min_improvement = 0.01 # minimum improvement for patience check
 
     # ---------------------------------------------------------------------------
@@ -74,21 +74,21 @@ def main():
     # ---------------------------------------------------------------------------
 
     # lvl = 1
-    envs_ind = 5
+    envs_ind = 6
 
     oppos_and_lvls = {
-                # "balrog": 1,
-                #  "bison": 1,
-                #  "blanka": 1,
-                 "chunli": 8,
-                #  "dhalsim": 1,
-                 "guile": 8,
-                #  "honda": 1,
+                # "balrog": 8,
+                #  "bison": 8,
+                #  "blanka": 8,
+                #  "chunli": 8,
+                #  "dhalsim": 8,
+                #  "guile": 8,
+                #  "honda": 8,
                  "ken": 8,
                  "ryu": 8,
-                 # "sagat": 1,
-                 # "vega": 1,
-                 # "zangief": 1,
+                 # "sagat": 8,
+                 # "vega": 8,
+                 # "zangief": 8,
     }
 
     envs_per_matchup = {f"ryu_vs_{opp}_{lvl}": envs_ind for opp, lvl in oppos_and_lvls.items()}

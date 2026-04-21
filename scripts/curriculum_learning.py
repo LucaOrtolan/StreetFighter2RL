@@ -5,8 +5,8 @@ from utils import make_env, get_state, linear_schedule, SubprocVecEnvCL
 from callbacks import CurriculumLearningCallback, TrainAndLoggingCallback, EarlyStoppingCallback
 import os
 
-CHECKPOINT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "train")
-LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
+CHECKPOINT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "train/final_models")
+LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs/exp1")
 STATE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data/states")
 
 
@@ -24,27 +24,26 @@ def main():
     lr_schedule = linear_schedule(5.0e-5, 2.5e-6) # alternative approach
     clip_range_schedule = linear_schedule(0.075, 0.025)
     winrate_buffer_size = 100 # sample size for computing winrate rolling average
-    winrate_threshold = 0.75 # winrate threshold for curriculum learning
+    winrate_threshold = 0.97 # winrate threshold for curriculum learning (was 0.75)
     min_improvement = 0.01 # winrate threshold for saving new model
     patience = 2000
     delete_previous_model = True
 
-
     curriculum = {
         "ryu_vs_ken" : {
-            "n_envs": 5, 
+            "n_envs": 8,
             "levels": [8]
             },
         "ryu_vs_chunli": {
-            "n_envs": 5,
+            "n_envs": 8,
             "levels": [8]
             },
         "ryu_vs_guile": {
-            "n_envs": 5,
+            "n_envs": 8,
             "levels": [8]
             },
         "ryu_vs_ryu": {
-            "n_envs": 5,
+            "n_envs": 8,
             "levels": [8]
             },
         }  
@@ -78,25 +77,26 @@ def main():
 
     env = SubprocVecEnvCL(env_list)
 
-    model = PPO(
-        "CnnPolicy",
-        env,
-        device="cuda",
-        verbose=1,
-        n_steps=512,
-        batch_size=1024, # multiple of n_steps
-        gamma=0.94,
-        n_epochs=4,
-        learning_rate=lr_schedule,
-        clip_range=clip_range_schedule,
-        tensorboard_log=LOG_DIR,
-    )
+    # model = PPO(
+    #     "CnnPolicy",
+    #     env,
+    #     device="cuda",
+    #     verbose=1,
+    #     n_steps=512,
+    #     batch_size=1024, # multiple of n_steps
+    #     gamma=0.94,
+    #     n_epochs=4,
+    #     learning_rate=lr_schedule,
+    #     clip_range=clip_range_schedule,
+    #     tensorboard_log=LOG_DIR,
+    # )
 
     # This is a trained model
-    # model = PPO.load("/home/emeralddawns/Documents/StreetFighter2RL/saved_models/cl4mu_run/best_model_difficulty_8_winrate_0.97.zip",
-    #                  env=env,
-    #                  device="cuda")
-    
+    model = PPO.load("/home/emeralddawns/Documents/StreetFighter2RL/train/final_models/best_model_difficulty_8_winrate_0.69.zip",
+                     env=env,
+                     device="cuda",
+                     tensorboard_log=LOG_DIR)
+
     cl_callback = CurriculumLearningCallback(winrate_buffer_size=winrate_buffer_size, 
                                              save_path=CHECKPOINT_DIR,
                                              min_improvement=min_improvement,

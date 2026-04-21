@@ -122,7 +122,7 @@ class SFWrapper(Wrapper):
         self.loss_modifier = 1      # default = 1
         self.action_cost = 1        # default = 0
         self.time_modifier = 0      # default = 0
-        self.mixitup_modifier = 0   # default = 0
+        self.mixitup_modifier = 1   # default = 0
         self.tie_penalty = 1        # default = 1
 
         # Move variety tracking
@@ -652,8 +652,9 @@ class SFWrapper(Wrapper):
             elif agent_hp < 0 or (timesup and agent_hp < enemy_hp):
                 # Agent lost the round.
 
-                #EXP RE: Time reward: Reward agent for taking up the human's time and not dying fast
-                time_factor = self.total_timesteps * self.time_modifier
+                time_factor = 0
+                # #EXP RE: Time reward: Reward agent for taking up the human's time and not dying fast
+                # time_factor = self.total_timesteps * self.time_modifier
 
                 # Reward decreases as remaining enemy HP increases (punishes giving up lots of HP before dying).
                 custom_reward = (self.loss_modifier * (
