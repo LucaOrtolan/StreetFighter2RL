@@ -197,6 +197,13 @@ def fight(model1_path, model2_path, state=DEFAULT_STATE, episodes=10,
 
     for ep in range(episodes):
         game_on = True
+        # Cumulative round wins for this episode. We increment whenever the RAM
+        # counter increases; a decrease (counter reset after a draw) is ignored so
+        # the tally survives the 0-reset that SF2 performs before a tie-break round.
+        ep_m1 = 0
+        ep_m2 = 0
+        prev_m1 = 0
+        prev_m2 = 0
 
         while game_on:
             if len(frames) < env.num_stack:
@@ -226,12 +233,18 @@ def fight(model1_path, model2_path, state=DEFAULT_STATE, episodes=10,
 
             m1_wins = info.get("matches_won", 0)
             m2_wins = info.get("enemy_matches_won", 0)
+            if m1_wins > prev_m1:
+                ep_m1 += m1_wins - prev_m1
+            if m2_wins > prev_m2:
+                ep_m2 += m2_wins - prev_m2
+            prev_m1 = m1_wins
+            prev_m2 = m2_wins
 
-            match_over = (m1_wins == 2 or m2_wins == 2) or done or truncated
+            match_over = (ep_m1 == 2 or ep_m2 == 2) or done or truncated
             if match_over:
-                if m1_wins > m2_wins:
+                if ep_m1 > ep_m2:
                     winner = name1
-                elif m2_wins > m1_wins:
+                elif ep_m2 > ep_m1:
                     winner = name2
                 else:
                     winner = "draw"
@@ -241,7 +254,7 @@ def fight(model1_path, model2_path, state=DEFAULT_STATE, episodes=10,
 
                 if verbose:
                     print(f"  Episode {ep_num:>3}: {winner} wins  "
-                          f"({name1} rounds: {m1_wins} | {name2} rounds: {m2_wins})")
+                          f"({name1} rounds: {ep_m1} | {name2} rounds: {ep_m2})")
 
                 obs, info = env.reset()
                 frames.clear()
