@@ -42,8 +42,15 @@ STATES_DIR = os.path.join(PROJECT_ROOT, "data", "states")
 DEFAULT_STATE = os.path.join(STATES_DIR, "player_ryu_vs_player_ryu.state")
 
 
+def mirror_obs(obs):
+    """
+    Horizontally flip an observation so a right-side model sees
+    the screen from the same perspective it was trained on (left side).
+    """
+    return obs[:, ::-1, :].copy()
+
 # ---------------------------------------------------------------------------
-# Fixed two-player environment
+# Two-player environment
 # ---------------------------------------------------------------------------
 
 class FightEnv(SFWrapper):
@@ -55,6 +62,25 @@ class FightEnv(SFWrapper):
     instead of `self._get_obs(obs)`. We reconstruct the observation from
     FrameStackObservation's internal obs_queue after the parent step completes.
     """
+
+    def __init__(self, *args, debug_emulator=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._emu_frame = 0
+        if debug_emulator:
+            from const import BUTTONS
+            original_step = self.env.step
+
+            def _logged_step(action):
+                mid = len(action) // 2
+                p1_btns = [BUTTONS[i] for i, b in enumerate(action[:mid]) if b]
+                p2_btns = [BUTTONS[i] for i, b in enumerate(action[mid:]) if b]
+                p1_str = "+".join(p1_btns) if p1_btns else "NO-OP"
+                p2_str = "+".join(p2_btns) if p2_btns else "NO-OP"
+                print(f"    EMU {self._emu_frame:>5}: P1={p1_str:<40}  P2={p2_str}")
+                self._emu_frame += 1
+                return original_step(action)
+
+            self.env.step = _logged_step
 
     def reset(self, **kwargs):
         obs, info = super().reset(**kwargs)
@@ -92,13 +118,14 @@ class FightEnv(SFWrapper):
 # ---------------------------------------------------------------------------
 
 def make_fight_env(state, rendering=False, num_stack=12, num_step_frames=8,
-                   enable_combo=True):
+                   enable_combo=True, debug_emulator=False):
     retro_env = retro.make(
         game=sf_game,
         state=state,
         use_restricted_actions=retro.Actions.FILTERED,
         obs_type=retro.Observations.IMAGE,
         render_mode="human" if rendering else False,
+        players=2,
     )
     return FightEnv(
         retro_env,
@@ -109,6 +136,7 @@ def make_fight_env(state, rendering=False, num_stack=12, num_step_frames=8,
         num_step_frames=num_step_frames,
         enable_combo=enable_combo,
         verbose=False,
+        debug_emulator=debug_emulator,
     )
 
 
@@ -116,8 +144,22 @@ def make_fight_env(state, rendering=False, num_stack=12, num_step_frames=8,
 # Fight loop
 # ---------------------------------------------------------------------------
 
+def _decode_action(action, action_dim):
+    """Return a human-readable summary of a binary action vector."""
+    from const import BUTTONS
+    base = action[:12]
+    buttons = [BUTTONS[i] for i, b in enumerate(base) if b]
+    summary = "+".join(buttons) if buttons else "NO-OP"
+    if action_dim > 12:
+        combo_id = int(4 * action[-3] + 2 * action[-2] + action[-1])
+        if combo_id < 6:
+            summary += f" [combo {combo_id}]"
+    return summary
+
+
 def fight(model1_path, model2_path, state=DEFAULT_STATE, episodes=10,
-          rendering=False, verbose=False, name1="Model 1", name2="Model 2"):
+          rendering=False, verbose=False, debug_actions=False,
+          debug_emulator=False, name1="Model 1", name2="Model 2"):
     """
     Run model1 (left / P1) against model2 (right / P2) for N episodes.
 
@@ -144,7 +186,7 @@ def fight(model1_path, model2_path, state=DEFAULT_STATE, episodes=10,
     print(f"Episodes:   {episodes}")
     print()
 
-    env = make_fight_env(state, rendering=rendering)
+    env = make_fight_env(state, rendering=rendering, debug_emulator=debug_emulator)
 
     wins = {name1: 0, name2: 0, "draw": 0}
 
@@ -159,11 +201,24 @@ def fight(model1_path, model2_path, state=DEFAULT_STATE, episodes=10,
         while game_on:
             if len(frames) < env.num_stack:
                 # Frame buffer not yet full — send no-ops for both players.
+                # Combo bits must be 111 (=7, out-of-range) to mean "no combo";
+                # all-zeros would decode as combo index 0 (Hadouken).
                 action1 = np.zeros(env.action_dim, dtype=np.int8)
                 action2 = np.zeros(env.action_dim, dtype=np.int8)
+                action1[-3:] = 1
+                action2[-3:] = 1
             else:
                 action1 = model1.predict(obs, deterministic=True)[0]
                 action2 = model2.predict(obs, deterministic=True)[0]
+
+                # action2_mirrored = action2.copy()
+                # action2_mirrored[6] = action2[7]  # LEFT ← RIGHT
+                # action2_mirrored[7] = action2[6]  # RIGHT ← LEFT
+
+            if debug_actions and len(frames) >= env.num_stack:
+                a1_str = _decode_action(action1, env.action_dim)
+                a2_str = _decode_action(action2, env.action_dim)
+                print(f"  step {len(frames):>5}  {name1}: {a1_str:<30}  {name2}: {a2_str}")
 
             combined = np.hstack([action1, action2])
             obs, _r1, _r2, done, truncated, info = env.step(combined)
@@ -237,6 +292,10 @@ def main():
                         help="Open a display window")
     parser.add_argument("--verbose", action="store_true",
                         help="Print per-episode outcomes")
+    parser.add_argument("--debug-actions", action="store_true",
+                        help="Print both agents' actions every step")
+    parser.add_argument("--debug-emulator", action="store_true",
+                        help="Print the raw button array sent to the emulator every frame")
     parser.add_argument("--list-states", action="store_true",
                         help="List available state files and exit")
 
@@ -256,6 +315,8 @@ def main():
         episodes=args.episodes,
         rendering=args.render,
         verbose=args.verbose,
+        debug_actions=args.debug_actions,
+        debug_emulator=args.debug_emulator,
         name1=args.name1,
         name2=args.name2,
     )

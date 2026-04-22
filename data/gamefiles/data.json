@@ -18,7 +18,7 @@
     },
     "enemy_matches_won": {
       "address": 16745559,
-      "type": ">u4"
+      "type": "|u1"
     },
     "enemy_status": {
       "address": 16745090,
