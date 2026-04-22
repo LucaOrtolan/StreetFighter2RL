@@ -21,8 +21,8 @@ def main():
     num_stack = 12 # number of frames to stack
     num_step_frames = 8 # number of frames per step
     num_timesteps = 300_000_000
-    lr_schedule = linear_schedule(5.0e-5, 2.5e-6) # alternative approach
-    clip_range_schedule = linear_schedule(0.075, 0.025)
+    lr_schedule = linear_schedule(1.95e-5, 2.5e-6) # alternative approach  # orig: 5.0e-5, 2.5e-6
+    clip_range_schedule = linear_schedule(0.0429, 0.025)  # orig: 0.075, 0.025
     winrate_buffer_size = 100 # sample size for computing winrate rolling average
     winrate_threshold = 0.97 # winrate threshold for curriculum learning (was 0.75)
     min_improvement = 0.01 # winrate threshold for saving new model
@@ -92,7 +92,7 @@ def main():
     # )
 
     # This is a trained model
-    model = PPO.load("/home/emeralddawns/Documents/StreetFighter2RL/train/final_models/best_model_difficulty_8_winrate_0.69.zip",
+    model = PPO.load("/home/emeralddawns/Documents/StreetFighter2RL/train/final_models/final_model_difficulty_8.zip",
                      env=env,
                      device="cuda",
                      tensorboard_log=LOG_DIR)

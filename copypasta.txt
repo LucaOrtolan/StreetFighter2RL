@@ -36,6 +36,20 @@ python3 fight.py \
   --verbose
 
 
+# Diana
+python3 fight.py \
+  --model1 /home/emeralddawns/Documents/StreetFighter2RL/sálvame/luca_full_curriculum/best_model_difficulty_8_winrate_0.97.zip --name1 full_curr_p97\
+  --model2 /home/emeralddawns/Documents/StreetFighter2RL/sálvame/something_is_off/bu_before_restart/final_model_difficulty_8.zip --name2 rs_p843\
+  --episodes 2 \
+  --render \
+  --verbose
+
+ python3 fight.py \
+  --model1 /home/emeralddawns/Documents/StreetFighter2RL/sálvame/something_is_off/bu_before_restart/final_model_difficulty_8.zip --name1 rs_p843\
+  --model2 /home/emeralddawns/Documents/StreetFighter2RL/sálvame/luca_full_curriculum/best_model_difficulty_8_winrate_0.97.zip --name2 full_curr_p97\
+  --episodes 2 \
+  --render \
+  --verbose
 
 
 "Reinforcement Learning using Reward Expectations in Scenarios with Aleatoric Uncertainties"
