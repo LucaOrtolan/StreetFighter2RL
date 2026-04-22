@@ -39,7 +39,7 @@ from wrapper import SFWrapper  # noqa: E402
 from const import sf_game      # noqa: E402
 
 STATES_DIR = os.path.join(PROJECT_ROOT, "data", "states")
-DEFAULT_STATE = os.path.join(STATES_DIR, "ryu_vs_ryu_8.state")
+DEFAULT_STATE = os.path.join(STATES_DIR, "player_ryu_vs_player_ryu.state")
 
 
 # ---------------------------------------------------------------------------
