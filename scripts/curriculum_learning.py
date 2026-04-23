@@ -92,10 +92,14 @@ def main():
     # )
 
     # This is a trained model
-    model = PPO.load("/home/emeralddawns/Documents/StreetFighter2RL/train/final_models/final_model_difficulty_8.zip",
+    model = PPO.load("/home/emeralddawns/Documents/StreetFighter2RL/train/final_models/best_model_difficulty_8_winrate_0.93.zip",
                      env=env,
                      device="cuda",
                      tensorboard_log=LOG_DIR)
+
+    model.learning_rate = lr_schedule
+    model.clip_range = clip_range_schedule
+    model._setup_lr_schedule()
 
     cl_callback = CurriculumLearningCallback(winrate_buffer_size=winrate_buffer_size, 
                                              save_path=CHECKPOINT_DIR,
