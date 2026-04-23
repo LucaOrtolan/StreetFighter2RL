@@ -66,6 +66,14 @@ class FightEnv(SFWrapper):
     def __init__(self, *args, debug_emulator=False, **kwargs):
         super().__init__(*args, **kwargs)
         self._emu_frame = 0
+        # Round-win counters tracked via HP at transition boundaries,
+        # independent of the RAM victory counters (which lag or reset mid-match).
+        self.p1_rounds_won = 0
+        self.p2_rounds_won = 0
+        # during_transition starts True on reset; the False→True flip is what
+        # marks "a round just ended this step."
+        self._prev_in_transition = True
+
         if debug_emulator:
             from const import BUTTONS
             original_step = self.env.step
@@ -85,10 +93,15 @@ class FightEnv(SFWrapper):
     def reset(self, **kwargs):
         obs, info = super().reset(**kwargs)
         self._latest_obs = obs
+        self.p1_rounds_won = 0
+        self.p2_rounds_won = 0
+        self._prev_in_transition = True
         return obs, info
 
     def step(self, action):
+        prev_in_transition = self._prev_in_transition
         result = super().step(action)
+        self._prev_in_transition = self.during_transition
 
         if self.side != "both":
             obs, reward, done, truncated, info = result
@@ -110,6 +123,20 @@ class FightEnv(SFWrapper):
             obs = obs_or_fn
 
         self._latest_obs = obs
+
+        # Detect round completion: during_transition just flipped False → True.
+        # HP at this exact step reliably indicates who won (it's the same check
+        # the wrapper used to trigger the transition). RAM victory counters are
+        # intentionally not used — they lag and reset mid-match.
+        if not prev_in_transition and self.during_transition:
+            hp1 = info.get("health", 0)
+            hp2 = info.get("enemy_health", 0)
+            if hp2 < 0 or (hp1 >= 0 and hp1 > hp2):
+                self.p1_rounds_won += 1
+            elif hp1 < 0 or (hp2 >= 0 and hp2 > hp1):
+                self.p2_rounds_won += 1
+            # both < 0 or equal at timeout → draw round, neither counter incremented
+
         return obs, r1, r2, done, truncated, info
 
 
@@ -197,13 +224,6 @@ def fight(model1_path, model2_path, state=DEFAULT_STATE, episodes=10,
 
     for ep in range(episodes):
         game_on = True
-        # Cumulative round wins for this episode. We increment whenever the RAM
-        # counter increases; a decrease (counter reset after a draw) is ignored so
-        # the tally survives the 0-reset that SF2 performs before a tie-break round.
-        ep_m1 = 0
-        ep_m2 = 0
-        prev_m1 = 0
-        prev_m2 = 0
 
         while game_on:
             if len(frames) < env.num_stack:
@@ -231,14 +251,8 @@ def fight(model1_path, model2_path, state=DEFAULT_STATE, episodes=10,
             obs, _r1, _r2, done, truncated, info = env.step(combined)
             frames.append(obs)
 
-            m1_wins = info.get("matches_won", 0)
-            m2_wins = info.get("enemy_matches_won", 0)
-            if m1_wins > prev_m1:
-                ep_m1 += m1_wins - prev_m1
-            if m2_wins > prev_m2:
-                ep_m2 += m2_wins - prev_m2
-            prev_m1 = m1_wins
-            prev_m2 = m2_wins
+            ep_m1 = env.p1_rounds_won
+            ep_m2 = env.p2_rounds_won
 
             match_over = (ep_m1 == 2 or ep_m2 == 2) or done or truncated
             if match_over:
