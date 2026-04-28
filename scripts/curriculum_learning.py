@@ -92,7 +92,7 @@ def main():
     # )
 
     # This is a trained model
-    model = PPO.load("/home/emeralddawns/Documents/StreetFighter2RL/train/final_models/best_model_difficulty_8_winrate_0.93.zip",
+    model = PPO.load("/home/emeralddawns/Documents/StreetFighter2RL/train/final_models/best_model_difficulty_8_winrate_0.97.zip",
                      env=env,
                      device="cuda",
                      tensorboard_log=LOG_DIR)

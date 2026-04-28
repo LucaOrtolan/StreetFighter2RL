@@ -36,6 +36,16 @@ python3 fight.py \
   --verbose
 
 
+
+python data_collection.py \
+    --model1 "../sálvame/luca_full_curriculum/full_curr_diff_8_winrate_0.97.zip" \
+    --name1 Curriculum \
+    --model2 "../sálvame/krystal_reward_shaping/reward_shaped_diff_8_winrate_0.97.zip" \
+    --name2 Rewards \
+    --episodes 2 \
+    --output-dir ../logs/analytics \
+    --render
+
 # Diana
 full curriculum left, reward shaped right
 python3 fight.py \
@@ -53,6 +63,29 @@ reward shaped left, full curriculum right
   --render \
   --verbose
 
+
+
+python fight.py \
+  --model1 /home/emeralddawns/Documents/StreetFighter2RL/sálvame/krystal_reward_shaping/reward_shaped_diff_8_winrate_0.97.zip \
+  --name1 Rewards \
+  --cpu \
+  --episodes 20 \
+  --render \
+  --verbose
+
+python fight.py \
+  --model1 /home/emeralddawns/Documents/StreetFighter2RL/sálvame/luca_full_curriculum/full_curr_diff_8_winrate_0.97.zip --name1 cl_p97\
+  --model2 /home/emeralddawns/Documents/StreetFighter2RL/sálvame/krystal_reward_shaping/reward_shaped_diff_8_winrate_0.97.zip --name2 rs_p97\
+  --episodes 20 \
+  --verbose \
+  --stochastic
+
+python fight.py \
+  --model1 /home/emeralddawns/Documents/StreetFighter2RL/sálvame/krystal_reward_shaping/reward_shaped_diff_8_winrate_0.97.zip --name1 rs_p97\
+  --model2 /home/emeralddawns/Documents/StreetFighter2RL/sálvame/luca_full_curriculum/full_curr_diff_8_winrate_0.97.zip --name2 cl_p97\
+  --episodes 20 \
+  --verbose \
+  --stochastic
 
 "Reinforcement Learning using Reward Expectations in Scenarios with Aleatoric Uncertainties"
 https://ieeexplore.ieee.org/document/9893651

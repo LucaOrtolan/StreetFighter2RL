@@ -39,7 +39,8 @@ from wrapper import SFWrapper  # noqa: E402
 from const import sf_game      # noqa: E402
 
 STATES_DIR = os.path.join(PROJECT_ROOT, "data", "states")
-DEFAULT_STATE = os.path.join(STATES_DIR, "player_ryu_vs_player_ryu.state")
+DEFAULT_STATE     = os.path.join(STATES_DIR, "player_ryu_vs_player_ryu.state")
+DEFAULT_CPU_STATE = os.path.join(STATES_DIR, "ryu_vs_ryu_8.state")
 
 
 def mirror_obs(obs):
@@ -146,6 +147,7 @@ class FightEnv(SFWrapper):
 
 def make_fight_env(state, rendering=False, num_stack=12, num_step_frames=8,
                    enable_combo=True, debug_emulator=False):
+    """Two-player env: model1 (left) vs model2 (right)."""
     retro_env = retro.make(
         game=sf_game,
         state=state,
@@ -164,6 +166,28 @@ def make_fight_env(state, rendering=False, num_stack=12, num_step_frames=8,
         enable_combo=enable_combo,
         verbose=False,
         debug_emulator=debug_emulator,
+    )
+
+
+def make_cpu_env(state, rendering=False, num_stack=12, num_step_frames=8,
+                 enable_combo=True, debug_emulator=False):
+    """Single-player env: model (left) vs CPU."""
+    retro_env = retro.make(
+        game=sf_game,
+        state=state,
+        use_restricted_actions=retro.Actions.FILTERED,
+        obs_type=retro.Observations.IMAGE,
+        render_mode="human" if rendering else False,
+    )
+    return SFWrapper(
+        retro_env,
+        side="left",
+        reset_type="match",
+        rendering=rendering,
+        num_stack=num_stack,
+        num_step_frames=num_step_frames,
+        enable_combo=enable_combo,
+        verbose=False,
     )
 
 
@@ -186,7 +210,7 @@ def _decode_action(action, action_dim):
 
 def fight(model1_path, model2_path, state=DEFAULT_STATE, episodes=10,
           rendering=False, verbose=False, debug_actions=False,
-          debug_emulator=False, name1="Model 1", name2="Model 2"):
+          debug_emulator=False, deterministic=True, name1="Model 1", name2="Model 2"):
     """
     Run model1 (left / P1) against model2 (right / P2) for N episodes.
 
@@ -235,8 +259,8 @@ def fight(model1_path, model2_path, state=DEFAULT_STATE, episodes=10,
                 action1[-3:] = 1
                 action2[-3:] = 1
             else:
-                action1 = model1.predict(obs, deterministic=True)[0]
-                action2 = model2.predict(obs, deterministic=True)[0]
+                action1 = model1.predict(obs, deterministic=deterministic)[0]
+                action2 = model2.predict(obs, deterministic=deterministic)[0]
 
                 # action2_mirrored = action2.copy()
                 # action2_mirrored[6] = action2[7]  # LEFT ← RIGHT
@@ -295,28 +319,128 @@ def fight(model1_path, model2_path, state=DEFAULT_STATE, episodes=10,
 
 
 # ---------------------------------------------------------------------------
+# vs-CPU fight loop
+# ---------------------------------------------------------------------------
+
+def fight_vs_cpu(model1_path, state=DEFAULT_CPU_STATE, episodes=10,
+                 rendering=False, verbose=False, debug_actions=False,
+                 deterministic=True, name1="Model 1"):
+    """
+    Run model1 (left / P1) against the CPU for N best-of-3 matches.
+
+    Round boundaries are detected the same way as data_collection.py:
+    watching during_transition flip False → True, then reading HP from info.
+    Match ends when either side accumulates 2 round wins.
+    """
+    print(f"Loading {name1}: {model1_path}")
+    model1 = PPO.load(model1_path)
+    print(f"State file: {state}")
+    print(f"Episodes:   {episodes}")
+    print()
+
+    env = make_cpu_env(state, rendering=rendering)
+
+    wins = {name1: 0, "CPU": 0, "draw": 0}
+    obs, info = env.reset()
+    frames = deque(maxlen=env.num_stack)
+
+    for ep in range(episodes):
+        game_on = True
+        p1_rounds = 0
+        p2_rounds = 0
+        prev_in_transition = True
+
+        while game_on:
+            if len(frames) < env.num_stack:
+                action = np.zeros(env.action_dim, dtype=np.int8)
+                action[-3:] = 1
+            else:
+                action = model1.predict(obs, deterministic=deterministic)[0]
+
+            if debug_actions and len(frames) >= env.num_stack:
+                print(f"  step {len(frames):>5}  {name1}: {_decode_action(action, env.action_dim)}")
+
+            obs, _reward, done, truncated, info = env.step(action)
+            frames.append(obs)
+
+            if not prev_in_transition and env.during_transition:
+                hp1 = info.get("health", 0)
+                hp2 = info.get("enemy_health", 0)
+                if hp1 > hp2:
+                    p1_rounds += 1
+                elif hp2 > hp1:
+                    p2_rounds += 1
+            prev_in_transition = env.during_transition
+
+            match_over = p1_rounds >= 2 or p2_rounds >= 2 or done or truncated
+            if match_over:
+                if p1_rounds > p2_rounds:
+                    winner = name1
+                elif p2_rounds > p1_rounds:
+                    winner = "CPU"
+                else:
+                    winner = "draw"
+
+                wins[winner] += 1
+
+                if verbose:
+                    print(f"  Episode {ep + 1:>3}: {winner} wins  "
+                          f"({name1} rounds: {p1_rounds} | CPU rounds: {p2_rounds})")
+
+                obs, info = env.reset()
+                frames.clear()
+                game_on = False
+
+    env.close()
+
+    total = sum(wins.values())
+    m1_rate = wins[name1] / total if total else 0.0
+    cpu_rate = wins["CPU"] / total if total else 0.0
+
+    col = max(len(name1), 5) + 2
+    width = col + 18
+    print()
+    print("=" * width)
+    print(f"  Results after {episodes} episode(s)")
+    print("=" * width)
+    print(f"  {name1:<{col}}: {wins[name1]:>4}  ({m1_rate:.1%})")
+    print(f"  {'CPU':<{col}}: {wins['CPU']:>4}  ({cpu_rate:.1%})")
+    print(f"  {'Draw':<{col}}: {wins['draw']:>4}")
+    print("=" * width)
+
+    return wins
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run two trained PPO models against each other in SF2.",
+        description="Run a trained PPO model against the CPU or another model in SF2.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--model1", required=True,
                         help="Path to Player 1 model (.zip)")
     parser.add_argument("--name1", default="Model 1",
                         help="Display name for Player 1")
-    parser.add_argument("--model2", required=True,
-                        help="Path to Player 2 model (.zip)")
+    parser.add_argument("--cpu", action="store_true",
+                        help="Fight model1 against the CPU (omit --model2)")
+    parser.add_argument("--model2", default=None,
+                        help="Path to Player 2 model (.zip) — required unless --cpu")
     parser.add_argument("--name2", default="Model 2",
                         help="Display name for Player 2")
-    parser.add_argument("--state", default=DEFAULT_STATE,
-                        help="Path to game .state file")
+    parser.add_argument("--state", default=None,
+                        help="Path to game .state file "
+                             f"(default: {DEFAULT_CPU_STATE} for --cpu, "
+                             f"{DEFAULT_STATE} for pvp)")
     parser.add_argument("--episodes", type=int, default=10,
                         help="Number of matches to play")
     parser.add_argument("--render", action="store_true",
                         help="Open a display window")
+    parser.add_argument("--stochastic", action="store_true",
+                        help="Sample actions from the policy distribution instead of taking the mean "
+                             "(useful if the deterministic policy is degenerate)")
     parser.add_argument("--verbose", action="store_true",
                         help="Print per-episode outcomes")
     parser.add_argument("--debug-actions", action="store_true",
@@ -335,18 +459,33 @@ def main():
             print(f"  {s}")
         return
 
-    fight(
-        model1_path=args.model1,
-        model2_path=args.model2,
-        state=args.state,
-        episodes=args.episodes,
-        rendering=args.render,
-        verbose=args.verbose,
-        debug_actions=args.debug_actions,
-        debug_emulator=args.debug_emulator,
-        name1=args.name1,
-        name2=args.name2,
-    )
+    if args.cpu:
+        fight_vs_cpu(
+            model1_path=args.model1,
+            state=args.state or DEFAULT_CPU_STATE,
+            episodes=args.episodes,
+            rendering=args.render,
+            verbose=args.verbose,
+            debug_actions=args.debug_actions,
+            deterministic=not args.stochastic,
+            name1=args.name1,
+        )
+    else:
+        if args.model2 is None:
+            parser.error("--model2 is required unless --cpu is set")
+        fight(
+            model1_path=args.model1,
+            model2_path=args.model2,
+            state=args.state or DEFAULT_STATE,
+            episodes=args.episodes,
+            rendering=args.render,
+            verbose=args.verbose,
+            debug_actions=args.debug_actions,
+            debug_emulator=args.debug_emulator,
+            deterministic=not args.stochastic,
+            name1=args.name1,
+            name2=args.name2,
+        )
 
 
 if __name__ == "__main__":
