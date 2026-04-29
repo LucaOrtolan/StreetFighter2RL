@@ -59,9 +59,9 @@ class SFWrapper(Wrapper):
         Which player the agent controls: "left", "right", or "both".
     reset_type : str
         Granularity of episode resets:
-          "round"  – reset after every individual round (fastest learning signal)
-          "match"  – reset only after a full best-of-3 match
-          "never"  – let the game run indefinitely (curriculum / evaluation use)
+          "round"  - reset after every individual round (fastest learning signal)
+          "match"  - reset only after a full best-of-3 match
+          "never"  - let the game run indefinitely (curriculum / evaluation use)
     init_level : int
         Starting arcade ladder level (1 = easiest CPU opponent).
     rendering : bool
@@ -157,7 +157,7 @@ class SFWrapper(Wrapper):
             # The integer is split into direction + attack (+ optional combo).
             #POI: This is why it is ok if null_combo was accidentally set to true
             if enable_combo or null_combo:
-                self.n_actions = MultiDiscrete([len(DIRECTIONS_BUTTONS) + len(ATTACKS_BUTTONS) + len(SF_COMBOS)])
+                self.action_space = MultiDiscrete([len(DIRECTIONS_BUTTONS) + len(ATTACKS_BUTTONS) + len(SF_COMBOS)])
             else: 
                 self.action_space = MultiDiscrete([len(DIRECTIONS_BUTTONS) + len(ATTACKS_BUTTONS)])
 
@@ -455,14 +455,14 @@ class SFWrapper(Wrapper):
         Reward structure
         ----------------
         During a round:
-          reward = dense_coeff × (aggresive_coeff × Δenemy_hp − Δagent_hp)
+          reward = dense_coeff x (aggresive_coeff x Δenemy_hp x Δagent_hp)
           (positive when the agent is dealing more damage than receiving)
 
         Round end — agent wins:
-          reward = +full_hp^((agent_hp+1)/(full_hp+1)) × aggresive_coeff
+          reward = +full_hp^((agent_hp+1)/(full_hp+1)) x aggresive_coeff
 
         Round end — agent loses:
-          reward = −full_hp^((agent_hp+1)/(full_hp+1)) × aggresive_coeff
+          reward = -full_hp^((agent_hp+1)/(full_hp+1)) x aggresive_coeff
 
         Round end — draw:
           reward = +1
@@ -477,11 +477,11 @@ class SFWrapper(Wrapper):
 
         Returns (single-player side)
         -------
-        obs        : np.ndarray  – pre-processed stacked frame observation
-        reward     : float       – shaped reward for the controlling player
-        done       : bool        – True if the episode should reset
-        truncated  : bool        – True if the episode hit a time limit
-        info       : dict        – game RAM state + episode metadata
+        obs        : np.ndarray  - pre-processed stacked frame observation
+        reward     : float       - shaped reward for the controlling player
+        done       : bool        - True if the episode should reset
+        truncated  : bool        - True if the episode hit a time limit
+        info       : dict        - game RAM state + episode metadata
         """
 
         # Apply optional discrete-to-binary action transformation.
@@ -499,6 +499,8 @@ class SFWrapper(Wrapper):
         custom_done = False
 
         # Filter out the START/pause button to prevent the agent from pausing.
+        # Stop corruption of the action vector.
+        action = action.copy()
         action[3] = 0
 
         # ---------------------------------------------------------------------------
