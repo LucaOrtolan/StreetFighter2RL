@@ -28,19 +28,17 @@ import sys
 import os
 import csv
 import argparse
-from collections import defaultdict, deque
+from collections import defaultdict
 
 import numpy as np
-import stable_retro as retro
 from stable_baselines3 import PPO
 
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPTS_DIR)
 sys.path.insert(0, SCRIPTS_DIR)
 
-from wrapper import SFWrapper          # noqa: E402
 from const import sf_game              # noqa: E402
-from fight import FightEnv, make_fight_env, _decode_action  # noqa: E402
+from fight import FightEnv, make_fight_env, make_cpu_env, _decode_action  # noqa: E402
 
 STATES_DIR = os.path.join(PROJECT_ROOT, "data", "states")
 DEFAULT_CPU_STATE = os.path.join(STATES_DIR, "ryu_vs_ryu_8.state")
@@ -205,53 +203,29 @@ def collect_vs_cpu(
     """
     Run model (P1) vs CPU for `episodes` complete best-of-3 matches.
 
-    Uses SFWrapper(side="left") — same env setup as test_policy.py.
+    Uses make_cpu_env() — same env setup as fight.py.
     CPU controls P2 natively; its button inputs are not recorded.
 
     Round boundaries are detected by watching during_transition flip False → True.
-    Actions are only recorded during active gameplay (not warmup or transition).
+    Actions are only recorded during active gameplay (not in transition).
     """
-    retro_env = retro.make(
-        game=sf_game,
-        state=state,
-        use_restricted_actions=retro.Actions.FILTERED,
-        obs_type=retro.Observations.IMAGE,
-        render_mode="human" if rendering else False,
-    )
-    env = SFWrapper(
-        retro_env,
-        side="left",
-        reset_type="match",
-        rendering=rendering,
-        num_stack=12,
-        num_step_frames=8,
-        enable_combo=True,
-        verbose=False,
-    )
+    env = make_cpu_env(state, rendering=rendering)
 
     obs, info = env.reset()
-    frames = deque(maxlen=env.num_stack)
 
     for ep in range(episodes):
         analytics.start_episode(matchup, p1_name, "CPU", ep + 1)
         game_on = True
-        prev_in_transition = True   # matches SFWrapper.reset() → during_transition=True
+        prev_in_transition = True   # matches reset() → during_transition=True
 
         while game_on:
-            warmup = len(frames) < env.num_stack
+            action = model.predict(obs, deterministic=deterministic)[0]
 
-            if warmup:
-                action = np.zeros(env.action_dim, dtype=np.int8)
-                action[-3:] = 1      # combo bits 111 = no-op combo
-            else:
-                action = model.predict(obs, deterministic=deterministic)[0]
-
-            # Record action only during active gameplay (not warmup or transition).
-            if not warmup and not prev_in_transition:
+            # Record action only during active gameplay (not in transition).
+            if not prev_in_transition:
                 analytics.record_action(_decode_action(action, env.action_dim))
 
             obs, _reward, done, truncated, info = env.step(action)
-            frames.append(obs)
 
             # Round end: during_transition just flipped False → True.
             if not prev_in_transition and env.during_transition:
@@ -264,7 +238,7 @@ def collect_vs_cpu(
             # End the match when either side wins 2 rounds (same logic as FightEnv).
             # Using round counts rather than relying solely on `done` avoids a race
             # condition where the arcade ladder resets victory counters in RAM before
-            # SFWrapper can set done=True, which causes extra rounds to be counted.
+            # the env can set done=True, which causes extra rounds to be counted.
             match_over = (
                 analytics._p1_rounds >= 2 or analytics._p2_rounds >= 2
                 or done or truncated
@@ -275,7 +249,6 @@ def collect_vs_cpu(
                 print(f"  ep {ep + 1:>3}:  winner={last['match_winner']:<4}  "
                       f"{p1_name} {last['p1_rounds_won']} – CPU {last['p2_rounds_won']}")
                 obs, info = env.reset()
-                frames.clear()
                 game_on = False
 
     env.close()
@@ -305,7 +278,6 @@ def collect_pvp(
     env = make_fight_env(state, rendering=rendering)
 
     obs, info = env.reset()
-    frames = deque(maxlen=env.num_stack)
 
     for ep in range(episodes):
         analytics.start_episode(matchup, p1_name, p2_name, ep + 1)
@@ -313,18 +285,10 @@ def collect_pvp(
         prev_in_transition = True
 
         while game_on:
-            warmup = len(frames) < env.num_stack
+            action1 = model1.predict(obs, deterministic=deterministic)[0]
+            action2 = model2.predict(obs, deterministic=deterministic)[0]
 
-            if warmup:
-                action1 = np.zeros(env.action_dim, dtype=np.int8)
-                action2 = np.zeros(env.action_dim, dtype=np.int8)
-                action1[-3:] = 1
-                action2[-3:] = 1
-            else:
-                action1 = model1.predict(obs, deterministic=deterministic)[0]
-                action2 = model2.predict(obs, deterministic=deterministic)[0]
-
-            if not warmup and not prev_in_transition:
+            if not prev_in_transition:
                 analytics.record_action(
                     _decode_action(action1, env.action_dim),
                     _decode_action(action2, env.action_dim),
@@ -332,7 +296,6 @@ def collect_pvp(
 
             combined = np.hstack([action1, action2])
             obs, _r1, _r2, done, truncated, info = env.step(combined)
-            frames.append(obs)
 
             if not prev_in_transition and env.during_transition:
                 analytics.record_round_end(
@@ -351,7 +314,6 @@ def collect_pvp(
                 print(f"  ep {ep + 1:>3}:  winner={last['match_winner']:<8}  "
                       f"{p1_name} {last['p1_rounds_won']} – {p2_name} {last['p2_rounds_won']}")
                 obs, info = env.reset()
-                frames.clear()
                 game_on = False
 
     env.close()
@@ -462,6 +424,15 @@ def main():
                 matchup=matchup, p1_name=p1_name, p2_name=p2_name,
                 rendering=args.render, deterministic=not args.stochastic,
             )
+
+        rows = [r for r in analytics.match_rows if r["matchup"] == matchup]
+        total = len(rows)
+        p1w = sum(1 for r in rows if r["match_winner"] == "p1")
+        p2w = sum(1 for r in rows if r["match_winner"] == "p2")
+        drw = sum(1 for r in rows if r["match_winner"] == "draw")
+        print(f"\n  Result: {p1_name} {p1w/total:.1%}  {p2_name} {p2w/total:.1%}"
+              + (f"  draw {drw/total:.1%}" if drw else "")
+              + f"  ({total} matches)")
 
     print_summary(analytics.match_rows, analytics.round_rows)
     analytics.save(args.output_dir)
