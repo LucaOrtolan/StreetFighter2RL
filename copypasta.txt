@@ -67,9 +67,9 @@ python data_collection.py \
     --model2 "../sálvame/krystal_reward_shaping/reward_shaped_diff_8_winrate_0.97.zip" \
     --name2 Rewards \
     --episodes 3000 \
-    --output-dir ../logs/analytics \
-    --stochastic
-
+    --output-dir ../logs/analytics/startup_fix \
+    --stochastic \
+    --n-envs 4
 
 python3 fight.py \
   --model1 /home/emeralddawns/Documents/GitHub/ReinforcementFighters/sálvame/luca_full_curriculum/best_model_difficulty_8_winrate_0.97.zip --name1 full_curr_p97\

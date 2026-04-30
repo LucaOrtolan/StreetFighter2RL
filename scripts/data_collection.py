@@ -29,6 +29,7 @@ import os
 import csv
 import argparse
 from collections import defaultdict
+from multiprocessing import Pool
 
 import numpy as np
 from stable_baselines3 import PPO
@@ -199,6 +200,7 @@ def collect_vs_cpu(
     p1_name: str,
     rendering: bool = False,
     deterministic: bool = True,
+    quiet: bool = False,
 ):
     """
     Run model (P1) vs CPU for `episodes` complete best-of-3 matches.
@@ -211,14 +213,25 @@ def collect_vs_cpu(
     """
     env = make_cpu_env(state, rendering=rendering)
 
+    MAX_STEPS_PER_EPISODE = 5000
+
     obs, info = env.reset()
 
     for ep in range(episodes):
         analytics.start_episode(matchup, p1_name, "CPU", ep + 1)
         game_on = True
         prev_in_transition = True   # matches reset() → during_transition=True
+        step = 0
 
         while game_on:
+            step += 1
+            if step > MAX_STEPS_PER_EPISODE:
+                print(f"  WARNING: {matchup} ep {ep + 1} exceeded {MAX_STEPS_PER_EPISODE} steps — forcing reset", flush=True)
+                analytics.record_match_end()
+                obs, info = env.reset()
+                game_on = False
+                continue
+
             action = model.predict(obs, deterministic=deterministic)[0]
 
             # Record action only during active gameplay (not in transition).
@@ -246,8 +259,9 @@ def collect_vs_cpu(
             if match_over:
                 analytics.record_match_end()
                 last = analytics.match_rows[-1]
-                print(f"  ep {ep + 1:>3}:  winner={last['match_winner']:<4}  "
-                      f"{p1_name} {last['p1_rounds_won']} – CPU {last['p2_rounds_won']}")
+                if not quiet:
+                    print(f"  [{matchup}] ep {ep + 1:>4}:  winner={last['match_winner']:<4}  "
+                          f"{p1_name} {last['p1_rounds_won']} – CPU {last['p2_rounds_won']}", flush=True)
                 obs, info = env.reset()
                 game_on = False
 
@@ -265,6 +279,7 @@ def collect_pvp(
     p2_name: str,
     rendering: bool = False,
     deterministic: bool = True,
+    quiet: bool = False,
 ):
     """
     Run model1 (P1) vs model2 (P2) for `episodes` complete best-of-3 matches.
@@ -277,14 +292,25 @@ def collect_pvp(
     """
     env = make_fight_env(state, rendering=rendering)
 
+    MAX_STEPS_PER_EPISODE = 5000
+
     obs, info = env.reset()
 
     for ep in range(episodes):
         analytics.start_episode(matchup, p1_name, p2_name, ep + 1)
         game_on = True
         prev_in_transition = True
+        step = 0
 
         while game_on:
+            step += 1
+            if step > MAX_STEPS_PER_EPISODE:
+                print(f"  WARNING: {matchup} ep {ep + 1} exceeded {MAX_STEPS_PER_EPISODE} steps — forcing reset", flush=True)
+                analytics.record_match_end()
+                obs, info = env.reset()
+                game_on = False
+                continue
+
             action1 = model1.predict(obs, deterministic=deterministic)[0]
             action2 = model2.predict(obs, deterministic=deterministic)[0]
 
@@ -311,12 +337,53 @@ def collect_pvp(
             if match_over:
                 analytics.record_match_end()
                 last = analytics.match_rows[-1]
-                print(f"  ep {ep + 1:>3}:  winner={last['match_winner']:<8}  "
-                      f"{p1_name} {last['p1_rounds_won']} – {p2_name} {last['p2_rounds_won']}")
+                if not quiet:
+                    print(f"  [{matchup}] ep {ep + 1:>4}:  winner={last['match_winner']:<8}  "
+                          f"{p1_name} {last['p1_rounds_won']} – {p2_name} {last['p2_rounds_won']}", flush=True)
                 obs, info = env.reset()
                 game_on = False
 
     env.close()
+
+
+# ---------------------------------------------------------------------------
+# Parallel shard runner
+# ---------------------------------------------------------------------------
+
+def _run_shard(args):
+    """
+    Subprocess worker. Loads models from paths, runs a slice of episodes,
+    offsets episode numbers to avoid collisions on merge, returns rows.
+    Must be a module-level function so multiprocessing can pickle it.
+    """
+    (mode, model1_path, model2_path, state,
+     n_episodes, matchup, p1_name, p2_name,
+     rendering, deterministic, ep_offset) = args
+
+    model1 = PPO.load(model1_path)
+    model2 = PPO.load(model2_path) if model2_path else None
+
+    collector = AnalyticsCollector()
+
+    if mode == "cpu":
+        collect_vs_cpu(
+            model1, state, n_episodes, collector,
+            matchup=matchup, p1_name=p1_name,
+            rendering=rendering, deterministic=deterministic,
+            quiet=False,
+        )
+    else:
+        collect_pvp(
+            model1, model2, state, n_episodes, collector,
+            matchup=matchup, p1_name=p1_name, p2_name=p2_name,
+            rendering=rendering, deterministic=deterministic,
+            quiet=False,
+        )
+
+    for row in collector.match_rows + collector.round_rows + collector.action_rows:
+        row["episode"] += ep_offset
+
+    return matchup, p1_name, p2_name, collector.match_rows, collector.round_rows, collector.action_rows
 
 
 # ---------------------------------------------------------------------------
@@ -386,53 +453,121 @@ def main():
                         help="Open a display window")
     parser.add_argument("--stochastic",  action="store_true",
                         help="Sample actions from the policy distribution instead of taking the mean")
+    parser.add_argument("--n-envs",      type=int, default=1,
+                        help="Parallel workers per matchup (also parallelises all 4 matchups simultaneously)")
     args = parser.parse_args()
 
-    print(f"Loading {args.name1}: {args.model1}")
-    model1 = PPO.load(args.model1)
-    print(f"Loading {args.name2}: {args.model2}")
-    model2 = PPO.load(args.model2)
-    print(f"Episodes per matchup: {args.episodes}")
-    print(f"CPU state : {args.cpu_state}")
-    print(f"PvP state : {args.pvp_state}")
-    print(f"Output    : {args.output_dir}")
+    print(f"Episodes per matchup : {args.episodes}")
+    print(f"CPU state            : {args.cpu_state}")
+    print(f"PvP state            : {args.pvp_state}")
+    print(f"Output               : {args.output_dir}")
+    print(f"Workers per matchup  : {args.n_envs}")
 
     analytics = AnalyticsCollector()
 
-    matchups = [
-        # (matchup_id, p1_name, p2_name, mode, m1, m2)
-        (f"{args.name1}_vs_CPU",          args.name1, "CPU",       "cpu", model1, None),
-        (f"{args.name2}_vs_CPU",          args.name2, "CPU",       "cpu", model2, None),
-        (f"{args.name1}_vs_{args.name2}", args.name1, args.name2,  "pvp", model1, model2),
-        (f"{args.name2}_vs_{args.name1}", args.name2, args.name1,  "pvp", model2, model1),
+    # Each entry: (matchup_id, p1_name, p2_name, mode, model1_path, model2_path, state)
+    matchup_defs = [
+        (f"{args.name1}_vs_CPU",          args.name1, "CPU",        "cpu", args.model1, None,         args.cpu_state),
+        (f"{args.name2}_vs_CPU",          args.name2, "CPU",        "cpu", args.model2, None,         args.cpu_state),
+        (f"{args.name1}_vs_{args.name2}", args.name1, args.name2,   "pvp", args.model1, args.model2,  args.pvp_state),
+        (f"{args.name2}_vs_{args.name1}", args.name2, args.name1,   "pvp", args.model2, args.model1,  args.pvp_state),
     ]
 
-    for matchup, p1_name, p2_name, mode, m1, m2 in matchups:
-        sep = "=" * 56
-        print(f"\n{sep}")
-        print(f"  {p1_name} (P1) vs {p2_name} (P2)   [{args.episodes} episodes]")
-        print(sep)
-        if mode == "cpu":
-            collect_vs_cpu(
-                m1, args.cpu_state, args.episodes, analytics,
-                matchup=matchup, p1_name=p1_name, rendering=args.render,
-                deterministic=not args.stochastic,
-            )
-        else:
-            collect_pvp(
-                m1, m2, args.pvp_state, args.episodes, analytics,
-                matchup=matchup, p1_name=p1_name, p2_name=p2_name,
-                rendering=args.render, deterministic=not args.stochastic,
-            )
+    if args.n_envs == 1:
+        # --- Sequential (original behaviour) ---
+        print(f"Loading {args.name1}: {args.model1}")
+        model1 = PPO.load(args.model1)
+        print(f"Loading {args.name2}: {args.model2}")
+        model2 = PPO.load(args.model2)
 
-        rows = [r for r in analytics.match_rows if r["matchup"] == matchup]
-        total = len(rows)
-        p1w = sum(1 for r in rows if r["match_winner"] == "p1")
-        p2w = sum(1 for r in rows if r["match_winner"] == "p2")
-        drw = sum(1 for r in rows if r["match_winner"] == "draw")
-        print(f"\n  Result: {p1_name} {p1w/total:.1%}  {p2_name} {p2w/total:.1%}"
-              + (f"  draw {drw/total:.1%}" if drw else "")
-              + f"  ({total} matches)")
+        model_map = {args.model1: model1, args.model2: model2}
+
+        for matchup, p1_name, p2_name, mode, m1_path, m2_path, state in matchup_defs:
+            sep = "=" * 56
+            print(f"\n{sep}")
+            print(f"  {p1_name} (P1) vs {p2_name} (P2)   [{args.episodes} episodes]")
+            print(sep)
+            if mode == "cpu":
+                collect_vs_cpu(
+                    model_map[m1_path], state, args.episodes, analytics,
+                    matchup=matchup, p1_name=p1_name,
+                    rendering=args.render, deterministic=not args.stochastic,
+                )
+            else:
+                collect_pvp(
+                    model_map[m1_path], model_map[m2_path], state, args.episodes, analytics,
+                    matchup=matchup, p1_name=p1_name, p2_name=p2_name,
+                    rendering=args.render, deterministic=not args.stochastic,
+                )
+
+            rows = [r for r in analytics.match_rows if r["matchup"] == matchup]
+            total = len(rows)
+            p1w = sum(1 for r in rows if r["match_winner"] == "p1")
+            p2w = sum(1 for r in rows if r["match_winner"] == "p2")
+            drw = sum(1 for r in rows if r["match_winner"] == "draw")
+            print(f"\n  Result: {p1_name} {p1w/total:.1%}  {p2_name} {p2w/total:.1%}"
+                  + (f"  draw {drw/total:.1%}" if drw else "")
+                  + f"  ({total} matches)")
+
+    else:
+        # --- Parallel: 4 matchups × n_envs workers = n_envs*4 total processes ---
+        n = args.n_envs
+        all_shards = []
+        shard_mu_index = []  # index into matchup_defs for each shard
+
+        for mu_idx, (matchup, p1_name, p2_name, mode, m1_path, m2_path, state) in enumerate(matchup_defs):
+            base, rem = divmod(args.episodes, n)
+            for i in range(n):
+                n_ep = base + (1 if i < rem else 0)
+                ep_offset = i * base + min(i, rem)
+                all_shards.append((
+                    mode, m1_path, m2_path, state,
+                    n_ep, matchup, p1_name, p2_name,
+                    args.render, not args.stochastic, ep_offset,
+                ))
+                shard_mu_index.append(mu_idx)
+
+        total_workers = len(all_shards)
+        print(f"\nSpawning {total_workers} workers ({n} per matchup × 4 matchups)...")
+
+        # Track accumulated shards per matchup so we can print as each one finishes.
+        mu_data     = defaultdict(lambda: {"mr": [], "rr": [], "ar": [], "p1": "", "p2": "", "done": 0})
+        mu_shards   = defaultdict(int)
+        for mu_idx in shard_mu_index:
+            mu_shards[matchup_defs[mu_idx][0]] += 1
+
+        with Pool(total_workers, maxtasksperchild=1) as pool:
+            for matchup, p1_name, p2_name, mr, rr, ar in pool.imap_unordered(_run_shard, all_shards):
+                d = mu_data[matchup]
+                d["mr"] += mr
+                d["rr"] += rr
+                d["ar"] += ar
+                d["p1"] = p1_name
+                d["p2"] = p2_name
+                d["done"] += 1
+
+                n_done  = d["done"]
+                n_total = mu_shards[matchup]
+
+                if n_done < n_total:
+                    print(f"  [{matchup}] shard {n_done}/{n_total} done "
+                          f"({len(d['mr'])} matches so far)")
+                else:
+                    # All shards for this matchup complete — print final result.
+                    total = len(d["mr"])
+                    p1w = sum(1 for r in d["mr"] if r["match_winner"] == "p1")
+                    p2w = sum(1 for r in d["mr"] if r["match_winner"] == "p2")
+                    drw = total - p1w - p2w
+                    print(f"\n  {matchup} complete: {p1_name} {p1w/total:.1%}  "
+                          f"{p2_name} {p2w/total:.1%}"
+                          + (f"  draw {drw/total:.1%}" if drw else "")
+                          + f"  ({total} matches)")
+
+        for matchup, p1_name, p2_name, *_ in matchup_defs:
+            d = mu_data[matchup]
+            analytics.match_rows += d["mr"]
+            analytics.round_rows += d["rr"]
+            analytics.action_rows += d["ar"]
 
     print_summary(analytics.match_rows, analytics.round_rows)
     analytics.save(args.output_dir)
