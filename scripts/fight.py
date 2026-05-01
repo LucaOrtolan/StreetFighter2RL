@@ -1,12 +1,10 @@
 """
-fight.py — Run two trained PPO models against each other in a 1v1 fight.
+fight.py: Run two trained PPO models against each other in a 1v1 fight.
+ Or one of them against the CPU.
+
 
 Both models are loaded from .zip files and placed into a shared Street Fighter II
 environment using side="both" so each controls one character simultaneously.
-
-The side="both" path in SFWrapper has a one-line obs bug (returns the method
-reference instead of calling it). FightEnv fixes that by pulling the stacked
-frame buffer from FrameStackObservation.obs_queue after each step.
 
 Usage
 -----
@@ -25,7 +23,6 @@ Usage
 import sys
 import os
 import argparse
-from collections import deque
 
 import numpy as np
 import stable_retro as retro
@@ -43,13 +40,6 @@ DEFAULT_STATE     = os.path.join(STATES_DIR, "player_ryu_vs_player_ryu.state")
 DEFAULT_CPU_STATE = os.path.join(STATES_DIR, "ryu_vs_ryu_8.state")
 
 
-def mirror_obs(obs):
-    """
-    Horizontally flip an observation so a right-side model sees
-    the screen from the same perspective it was trained on (left side).
-    """
-    return obs[:, ::-1, :].copy()
-
 # ---------------------------------------------------------------------------
 # Two-player environment
 # ---------------------------------------------------------------------------
@@ -57,11 +47,9 @@ def mirror_obs(obs):
 class FightEnv(SFWrapper):
     """
     SFWrapper subclass for 2-model fights.
-
-    The only change is fixing the side='both' observation bug in SFWrapper.step():
-    the original code accidentally returns `self._get_obs` (the unbound method)
-    instead of `self._get_obs(obs)`. We reconstruct the observation from
-    FrameStackObservation's internal obs_queue after the parent step completes.
+    Reminder to self: very important to have 2 different set of parameters for model vs. model and model vs. CPU
+    Second reminder to self: there is approximately one effective method for determining how a match has ended.
+        It works now. DO NOT TOUCH IT.
     """
 
     def __init__(self, *args, debug_emulator=False, **kwargs):
@@ -71,8 +59,6 @@ class FightEnv(SFWrapper):
         # independent of the RAM victory counters (which lag or reset mid-match).
         self.p1_rounds_won = 0
         self.p2_rounds_won = 0
-        # during_transition starts True on reset; the False→True flip is what
-        # marks "a round just ended this step."
         self._prev_in_transition = True
 
         if debug_emulator:
@@ -113,8 +99,6 @@ class FightEnv(SFWrapper):
         obs_or_fn, r1, r2, done, truncated, info = result
 
         if callable(obs_or_fn):
-            # Bug: obs_or_fn is self._get_obs method, not the actual observation.
-            # Reconstruct from FrameStackObservation's frame buffer (self.env.obs_queue).
             try:
                 raw_stacked = np.array(list(self.env.obs_queue))
                 obs = self._get_obs(raw_stacked)
@@ -125,10 +109,10 @@ class FightEnv(SFWrapper):
 
         self._latest_obs = obs
 
-        # Detect round completion: during_transition just flipped False → True.
+        # Detect round completion: during_transition just flipped False to True.
         # HP at this exact step reliably indicates who won (it's the same check
         # the wrapper used to trigger the transition). RAM victory counters are
-        # intentionally not used — they lag and reset mid-match.
+        # intentionally not used; they lag and reset mid-match.
         if not prev_in_transition and self.during_transition:
             hp1 = info.get("health", 0)
             hp2 = info.get("enemy_health", 0)
@@ -136,13 +120,13 @@ class FightEnv(SFWrapper):
                 self.p1_rounds_won += 1
             elif hp1 < 0 or (hp2 >= 0 and hp2 > hp1):
                 self.p2_rounds_won += 1
-            # both < 0 or equal at timeout → draw round, neither counter incremented
+            # both < 0 or equal at timeout -> draw round, neither counter incremented
 
         return obs, r1, r2, done, truncated, info
 
 
 # ---------------------------------------------------------------------------
-# Environment factory
+# Environment manufacturing facility
 # ---------------------------------------------------------------------------
 
 def make_fight_env(state, rendering=False, num_stack=12, num_step_frames=8,
@@ -242,38 +226,23 @@ def fight(model1_path, model2_path, state=DEFAULT_STATE, episodes=10,
     wins = {name1: 0, name2: 0, "draw": 0}
 
     obs, info = env.reset()
-    # Tracks how many observations have been seen since last reset.
-    # We send no-ops while the frame buffer is warming up, matching test_policy.py.
-    frames = deque(maxlen=env.num_stack)
 
     for ep in range(episodes):
         game_on = True
+        step = 0
 
         while game_on:
-            if len(frames) < env.num_stack:
-                # Frame buffer not yet full — send no-ops for both players.
-                # Combo bits must be 111 (=7, out-of-range) to mean "no combo";
-                # all-zeros would decode as combo index 0 (Hadouken).
-                action1 = np.zeros(env.action_dim, dtype=np.int8)
-                action2 = np.zeros(env.action_dim, dtype=np.int8)
-                action1[-3:] = 1
-                action2[-3:] = 1
-            else:
-                action1 = model1.predict(obs, deterministic=deterministic)[0]
-                action2 = model2.predict(obs, deterministic=deterministic)[0]
+            action1 = model1.predict(obs, deterministic=deterministic)[0]
+            action2 = model2.predict(obs, deterministic=deterministic)[0]
 
-                # action2_mirrored = action2.copy()
-                # action2_mirrored[6] = action2[7]  # LEFT ← RIGHT
-                # action2_mirrored[7] = action2[6]  # RIGHT ← LEFT
-
-            if debug_actions and len(frames) >= env.num_stack:
+            if debug_actions:
                 a1_str = _decode_action(action1, env.action_dim)
                 a2_str = _decode_action(action2, env.action_dim)
-                print(f"  step {len(frames):>5}  {name1}: {a1_str:<30}  {name2}: {a2_str}")
+                print(f"  step {step:>5}  {name1}: {a1_str:<30}  {name2}: {a2_str}")
 
             combined = np.hstack([action1, action2])
             obs, _r1, _r2, done, truncated, info = env.step(combined)
-            frames.append(obs)
+            step += 1
 
             ep_m1 = env.p1_rounds_won
             ep_m2 = env.p2_rounds_won
@@ -295,7 +264,6 @@ def fight(model1_path, model2_path, state=DEFAULT_STATE, episodes=10,
                           f"({name1} rounds: {ep_m1} | {name2} rounds: {ep_m2})")
 
                 obs, info = env.reset()
-                frames.clear()
                 game_on = False
 
     env.close()
@@ -327,10 +295,6 @@ def fight_vs_cpu(model1_path, state=DEFAULT_CPU_STATE, episodes=10,
                  deterministic=True, name1="Model 1"):
     """
     Run model1 (left / P1) against the CPU for N best-of-3 matches.
-
-    Round boundaries are detected the same way as data_collection.py:
-    watching during_transition flip False → True, then reading HP from info.
-    Match ends when either side accumulates 2 round wins.
     """
     print(f"Loading {name1}: {model1_path}")
     model1 = PPO.load(model1_path)
@@ -342,26 +306,22 @@ def fight_vs_cpu(model1_path, state=DEFAULT_CPU_STATE, episodes=10,
 
     wins = {name1: 0, "CPU": 0, "draw": 0}
     obs, info = env.reset()
-    frames = deque(maxlen=env.num_stack)
 
     for ep in range(episodes):
         game_on = True
         p1_rounds = 0
         p2_rounds = 0
         prev_in_transition = True
+        step = 0
 
         while game_on:
-            if len(frames) < env.num_stack:
-                action = np.zeros(env.action_dim, dtype=np.int8)
-                action[-3:] = 1
-            else:
-                action = model1.predict(obs, deterministic=deterministic)[0]
+            action = model1.predict(obs, deterministic=deterministic)[0]
 
-            if debug_actions and len(frames) >= env.num_stack:
-                print(f"  step {len(frames):>5}  {name1}: {_decode_action(action, env.action_dim)}")
+            if debug_actions:
+                print(f"  step {step:>5}  {name1}: {_decode_action(action, env.action_dim)}")
 
             obs, _reward, done, truncated, info = env.step(action)
-            frames.append(obs)
+            step += 1
 
             if not prev_in_transition and env.during_transition:
                 hp1 = info.get("health", 0)
@@ -388,7 +348,6 @@ def fight_vs_cpu(model1_path, state=DEFAULT_CPU_STATE, episodes=10,
                           f"({name1} rounds: {p1_rounds} | CPU rounds: {p2_rounds})")
 
                 obs, info = env.reset()
-                frames.clear()
                 game_on = False
 
     env.close()

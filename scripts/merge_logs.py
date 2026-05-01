@@ -1,3 +1,9 @@
+"""
+This is a file I had Claude write so I could:
+    Merge multiple TensorBoard event files, offsetting steps so they
+    appear as one continuous run rather than multiple runs starting at 0.
+"""
+
 import glob
 import os
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator

@@ -1,4 +1,7 @@
 """
+I did not do any of the parallel processing in this file. Nor could I.
+I would like to thank Anthropic for their use of Claude AI.
+
 data_collection.py — Collect match analytics across four model matchups.
 
 Runs N episodes for each of:
@@ -11,9 +14,6 @@ Outputs three CSV files:
   matches.csv — one row per completed match (rounds won, match winner)
   rounds.csv  — one row per completed round (final HP, HP ratio, round winner)
   actions.csv — one row per (matchup, episode, round, player, action) with step count
-
-Round boundaries are detected the same way FightEnv does it: watching for the
-during_transition flag to flip False → True, then reading the final HP from info.
 
 Usage
 -----
@@ -38,8 +38,7 @@ SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPTS_DIR)
 sys.path.insert(0, SCRIPTS_DIR)
 
-from const import sf_game              # noqa: E402
-from fight import FightEnv, make_fight_env, make_cpu_env, _decode_action  # noqa: E402
+from fight import FightEnv, make_fight_env, make_cpu_env, _decode_action
 
 STATES_DIR = os.path.join(PROJECT_ROOT, "data", "states")
 DEFAULT_CPU_STATE = os.path.join(STATES_DIR, "ryu_vs_ryu_8.state")
@@ -95,7 +94,8 @@ class AnalyticsCollector:
 
     def record_round_end(self, p1_hp: int, p2_hp: int):
         """
-        Called when during_transition flips False → True.
+        Called when during_transition flips False to True.
+        Very important or the match reset can be missed.
 
         HP values at transition: the loser's HP is negative (clamped to 0 here).
         Action counts accumulated since the last round end are flushed and reset.
@@ -205,10 +205,10 @@ def collect_vs_cpu(
     """
     Run model (P1) vs CPU for `episodes` complete best-of-3 matches.
 
-    Uses make_cpu_env() — same env setup as fight.py.
+    Uses make_cpu_env() (same env setup as fight.py).
     CPU controls P2 natively; its button inputs are not recorded.
 
-    Round boundaries are detected by watching during_transition flip False → True.
+    Round boundaries are detected by watching during_transition flip False to True.
     Actions are only recorded during active gameplay (not in transition).
     """
     env = make_cpu_env(state, rendering=rendering)

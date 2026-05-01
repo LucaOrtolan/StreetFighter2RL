@@ -21,7 +21,6 @@ import os
 from utils import make_env, linear_schedule
 
 from callbacks import TrainAndLoggingCallback, EarlyStoppingCallback
-from qol import *
 
 # ---------------------------------------------------------------------------
 # Directory paths (relative to the project root, one level above this file)
@@ -164,4 +163,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    play_done_sound(path="/home/emeralddawns/Documents/done_songs/LookWhatYouMadeMeDo.mp3")

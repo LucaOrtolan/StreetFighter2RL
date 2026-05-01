@@ -1,5 +1,9 @@
-import numpy as np
+"""
+Didn't use this in the final run, but maybe if I come back to this.
+"""
 
+
+import numpy as np
 
 def sigmoid_01(x, k, midpoint):
     sig = lambda t: 1 / (1 + np.exp(-t))

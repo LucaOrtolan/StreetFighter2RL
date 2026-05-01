@@ -770,7 +770,7 @@ class SFWrapper(Wrapper):
         else:
             # Two-player mode: return separate rewards for each agent.
             return (
-                self._get_obs,
+                self._get_obs(obs),
                 stabilizer * custom_reward,
                 stabilizer * custom_reward_inverse,
                 custom_done,
