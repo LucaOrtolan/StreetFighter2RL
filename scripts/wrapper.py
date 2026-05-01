@@ -175,7 +175,7 @@ class SFWrapper(Wrapper):
                         # Combo action: clear the 12 base buttons,
                         # encode the combo index into 3 bits via binary_repr.
                         button_bits = [0 for _ in range(12)]
-                        combo_bits = [int(i) for i in np.binary_repr(player_action)]
+                        combo_bits = [int(i) for i in np.binary_repr(player_action - len(DIRECTIONS_BUTTONS) - len(ATTACKS_BUTTONS), width=3)]
                     elif player_action >= len(DIRECTIONS_BUTTONS):
                         # Attack action (no direction pressed).
                         direction_buttons = []
@@ -687,7 +687,7 @@ class SFWrapper(Wrapper):
                 custom_reward_inverse = (self.win_modifier * (-math.pow(self.full_hp, (agent_hp + 1) / (self.full_hp + 1)))
                                          - time_factor)
 
-                if self.reset_type == "reset":
+                if self.reset_type == "round":
                     custom_done = True
                 else:
                     self.during_transition = True

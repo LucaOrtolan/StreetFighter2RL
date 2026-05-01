@@ -5,18 +5,21 @@ python data_collection.py \
     --name1 Curriculum \
     --model2 "../sálvame/krystal_reward_shaping/reward_shaped_diff_8_winrate_0.97.zip" \
     --name2 Rewards \
-    --episodes 2 \
+    --episodes 1 \
     --output-dir ../logs/analytics/deterministic
 
+
+# don't use render with more than 1 n-env!
 python data_collection.py \
     --model1 "../sálvame/luca_full_curriculum/full_curr_diff_8_winrate_0.97.zip" \
     --name1 Curriculum \
     --model2 "../sálvame/krystal_reward_shaping/reward_shaped_diff_8_winrate_0.97.zip" \
     --name2 Rewards \
-    --episodes 2 \
+    --episodes 10 \
     --output-dir ../logs/analytics \
-    --render \
-    --stochastic
+    --stochastic \
+    --n-envs 1 \
+    --render
 
 
 python fight.py \
@@ -49,6 +52,10 @@ python fight.py \
   --verbose \
   --render
 
+
+python curriculum_learning.py
+
+python train.py
 
 
 GET RID OF WALL TIMEs IF YOU RUN THIS AGAIN
@@ -82,55 +89,3 @@ print()
 print('Max winrate:', wr['rollout/ep_winrate'].max())
 print('Last saved winrate max:', combined['train/last_saved_winrate'].max())
 " 2>/dev/null
-
-python data_collection.py \
-    --model1 "../sálvame/luca_full_curriculum/full_curr_diff_8_winrate_0.97.zip" \
-    --name1 Curriculum \
-    --model2 "../sálvame/krystal_reward_shaping/reward_shaped_diff_8_winrate_0.97.zip" \
-    --name2 Rewards \
-    --episodes 2 \
-    --output-dir ../logs/analytics/deterministic
-
-
-python data_collection.py \
-    --model1 "../sálvame/luca_full_curriculum/full_curr_diff_8_winrate_0.97.zip" \
-    --name1 Curriculum \
-    --model2 "../sálvame/krystal_reward_shaping/reward_shaped_diff_8_winrate_0.97.zip" \
-    --name2 Rewards \
-    --episodes 2 \
-    --output-dir ../logs/analytics \
-    --render \
-    --stochastic
-
-
-
-
-python fight.py \
-  --model1 /home/emeralddawns/Documents/StreetFighter2RL/sálvame/luca_full_curriculum/full_curr_diff_8_winrate_0.97.zip \
-  --name1 Curriculum \
-  --cpu \
-  --episodes 1 \
-  --verbose \
-  --render
-
-python fight.py \
-  --model1 /home/emeralddawns/Documents/StreetFighter2RL/sálvame/krystal_reward_shaping/reward_shaped_diff_8_winrate_0.97.zip \
-  --name1 Rewards \
-  --cpu \
-  --episodes 1 \
-  --verbose \
-  --render
-
-python fight.py \
-  --model1 /home/emeralddawns/Documents/StreetFighter2RL/sálvame/luca_full_curriculum/full_curr_diff_8_winrate_0.97.zip --name1 cl_p97\
-  --model2 /home/emeralddawns/Documents/StreetFighter2RL/sálvame/krystal_reward_shaping/reward_shaped_diff_8_winrate_0.97.zip --name2 rs_p97\
-  --episodes 1 \
-  --verbose \
-  --render
-
-python fight.py \
-  --model1 /home/emeralddawns/Documents/StreetFighter2RL/sálvame/krystal_reward_shaping/reward_shaped_diff_8_winrate_0.97.zip --name1 rs_p97\
-  --model2 /home/emeralddawns/Documents/StreetFighter2RL/sálvame/luca_full_curriculum/full_curr_diff_8_winrate_0.97.zip --name2 cl_p97\
-  --episodes 1 \
-  --verbose \
-  --render

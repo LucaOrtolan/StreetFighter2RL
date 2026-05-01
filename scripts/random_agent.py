@@ -104,10 +104,9 @@ def random_agent(env, episodes=1):
     episodes : int
         Number of full episodes (matches or rounds, depending on reset_type) to run.
     """
-    obs = env.reset()
-    done = False
-
     for game in range(episodes):
+        obs, info = env.reset()
+        done = False
         while not done:
             # Draw a uniformly random action from the MultiBinary or MultiDiscrete space.
             action = env.action_space.sample()
